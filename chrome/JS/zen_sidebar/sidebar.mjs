@@ -375,16 +375,18 @@ const CSS_TEXT = `
 
 /* ── Nav Bar ───────────────────────────────────────────────── */
 #zen-sidebar-navbar {
-  display: flex; align-items: center; gap: 1px;
-  padding: 4px 6px;
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px 8px;
   background: var(--toolbar-bgcolor, #1c1b22);
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
-  min-height: 32px; flex-shrink: 0;
+  min-height: 36px; flex-shrink: 0;
+  border-radius: 8px 8px 0 0;
+  margin: 4px 4px 0 4px;
 }
-#zen-sidebar-navbar[collapsed="true"] { display: none; }
+#zen-sidebar-navbar[collapsed="true"] { display: none !important; }
 
 .zen-sb-nav-btn {
-  appearance: none; width: 28px; height: 28px;
+  appearance: none; width: 28px; height: 28px; min-width: 28px; min-height: 28px;
   border-radius: 6px; background: transparent; border: none;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   padding: 0; opacity: 0.7;
@@ -397,22 +399,28 @@ const CSS_TEXT = `
 .zen-sb-nav-btn:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08)); opacity: 1;
 }
+/* Space before close button */
+.zen-sb-close-btn { margin-inline-start: 6px; }
 .zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
 #zen-sb-mode .toolbarbutton-icon { display: none; }
 #zen-sb-mode::after {
-  content: ""; width: 14px; height: 14px;
+  content: ""; display: block; width: 14px; height: 14px; margin: auto;
   background: var(--toolbar-color, #fbfbfe);
   mask-size: contain; mask-repeat: no-repeat; mask-position: center; opacity: 0.7;
 }
 #zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/open-in-new.svg"); }
 #zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/arrow-left.svg"); }
 
-/* ── Panel Container ───────────────────────────────────────── */
+/* ── Panel Container (rounded edges like Zen) ──────────────── */
 #zen-sidebar-panel-container {
   display: flex; flex-direction: column; flex: 1; overflow: hidden;
+  border-radius: 8px;
+  margin: 0 4px 4px 4px;
 }
 .zen-sidebar-web-panel-browser {
-  flex: 1; border: none; background: var(--toolbar-bgcolor, #1c1b22);
+  flex: 1; border: none;
+  background: var(--toolbar-bgcolor, #1c1b22);
+  border-radius: 8px;
 }
 
 /* ── Icon Toolbar (always visible, fixed width) ───────────── */
