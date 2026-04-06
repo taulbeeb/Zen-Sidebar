@@ -369,7 +369,7 @@ const CSS_TEXT = `
   flex: 1; min-width: 0;
   overflow: hidden;
   border-radius: 10px;
-  margin: 6px 6px 6px 0;
+  margin: 7px 6px 7px 0;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
@@ -401,18 +401,6 @@ const CSS_TEXT = `
 /* Space before close button */
 .zen-sb-close-btn { margin-inline-start: 6px; }
 .zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
-/* Home button fallback icon */
-#zen-sb-home .toolbarbutton-icon[src=""] { display: none; }
-#zen-sb-home:not([image]) .toolbarbutton-icon,
-#zen-sb-home .toolbarbutton-icon:not([src*="://"]) { display: none; }
-#zen-sb-home::after {
-  content: ""; display: block; width: 14px; height: 14px; margin: auto;
-  background: var(--toolbar-color, #fbfbfe);
-  mask-image: url("chrome://browser/skin/home.svg");
-  mask-size: contain; mask-repeat: no-repeat; mask-position: center;
-  opacity: 0.7;
-}
-
 #zen-sb-mode .toolbarbutton-icon { display: none; }
 #zen-sb-mode::after {
   content: ""; display: block; width: 14px; height: 14px; margin: auto;
@@ -436,7 +424,7 @@ const CSS_TEXT = `
   display: flex; flex-direction: column;
   width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; max-width: ${TOOLBAR_WIDTH}px;
   flex-shrink: 0;
-  background: var(--toolbar-bgcolor, #1c1b22);
+  background: rgba(0, 0, 0, 0.1);
   padding: 8px 0;
   box-sizing: border-box;
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
