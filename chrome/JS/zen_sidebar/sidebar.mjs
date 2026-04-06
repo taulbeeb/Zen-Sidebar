@@ -262,22 +262,6 @@ export class ZenSidebar {
   // ── Keyboard Shortcut ─────────────────────────────────────────────
 
   _registerKeybinding() {
-    const keyset =
-      this.doc.getElementById("mainKeyset") ||
-      this.doc.getElementById("zenKeyset");
-
-    if (keyset) {
-      this._key = this._el("key", {
-        id: "zen-sidebar-toggle-key",
-        modifiers: "accel,shift",
-        key: "E",
-        oncommand: "void(0);",
-      });
-      this._key.addEventListener("command", () => this.toggle());
-      keyset.appendChild(this._key);
-    }
-
-    // Fallback: listen for keydown
     this._keyHandler = (e) => {
       if (
         (e.ctrlKey || e.metaKey) &&
@@ -292,9 +276,6 @@ export class ZenSidebar {
   }
 
   _removeKeybinding() {
-    if (this._key) {
-      this._key.remove();
-    }
     if (this._keyHandler) {
       this.win.removeEventListener("keydown", this._keyHandler);
     }
