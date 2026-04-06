@@ -369,7 +369,7 @@ const CSS_TEXT = `
   flex: 1; min-width: 0;
   overflow: hidden;
   border-radius: 10px;
-  margin: 7px 6px 7px 0;
+  margin: 8px 6px 8px 0;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
