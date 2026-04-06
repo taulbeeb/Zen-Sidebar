@@ -7,7 +7,7 @@ export class Toolbar {
   }
 
   build() {
-    this._toolbar = this._el("vbox", { id: "zen-sidebar-toolbar" });
+    this._toolbar = this._el("vbox", { id: "zen-sidebar-toolbar", width: "48" });
     this._iconContainer = this._el("vbox", { id: "zen-sidebar-toolbar-icons", flex: "1" });
 
     // Add button lives inline, inside the icon container

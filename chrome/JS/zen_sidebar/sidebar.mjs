@@ -52,7 +52,7 @@ export class ZenSidebar {
     this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
 
     // Panel area (nav + content) - collapsible
-    this._panelArea = this._el("vbox", { id: "zen-sidebar-panel-area", hidden: "true" });
+    this._panelArea = this._el("vbox", { id: "zen-sidebar-panel-area", hidden: "true", flex: "1" });
 
     // Nav bar
     this._navBar = this._el("hbox", { id: "zen-sidebar-navbar", align: "center" });
@@ -396,12 +396,16 @@ const CSS_TEXT = `
   background: var(--toolbar-bgcolor, #1c1b22);
 }
 
-/* ── Icon Toolbar (always visible) ─────────────────────────── */
+/* ── Icon Toolbar (always visible, fixed width) ───────────── */
 #zen-sidebar-toolbar {
   display: -moz-box; -moz-box-orient: vertical;
-  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px;
+  width: ${TOOLBAR_WIDTH}px !important;
+  min-width: ${TOOLBAR_WIDTH}px !important;
+  max-width: ${TOOLBAR_WIDTH}px !important;
+  -moz-box-flex: 0 !important;
   background: var(--toolbar-bgcolor, #1c1b22);
   padding: 8px 0;
+  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-toolbar-icons {
   display: -moz-box; -moz-box-orient: vertical; -moz-box-align: center; -moz-box-flex: 1;
