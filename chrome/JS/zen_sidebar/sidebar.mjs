@@ -46,7 +46,7 @@ export class ZenSidebar {
     if (!container) container = this.doc.documentElement;
     this._container = container;
 
-    this._sidebarBox = this._el("vbox", { id: "zen-sidebar-box", hidden: "true" });
+    this._sidebarBox = this._el("hbox", { id: "zen-sidebar-box", hidden: "true" });
 
     this._splitter = this._el("splitter", { id: "zen-sidebar-splitter", hidden: "true" });
     this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
