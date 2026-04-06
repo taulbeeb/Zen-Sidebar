@@ -72,8 +72,9 @@ export class ZenSidebar {
 
     const toolbarEl = this.toolbar.build();
 
-    this._sidebarBox.append(this._panelArea, toolbarEl);
-    container.append(this._splitter, this._sidebarBox);
+    // Splitter inside the box, before panel area so it's on the left edge
+    this._sidebarBox.append(this._splitter, this._panelArea, toolbarEl);
+    container.appendChild(this._sidebarBox);
     this._applyMode();
   }
 
@@ -98,7 +99,11 @@ export class ZenSidebar {
   updateNavBarVisibility() {
     const panel = this.panelManager.activePanel;
     if (!panel) return;
-    this._navBar.setAttribute("collapsed", panel.showToolbar === false ? "true" : "false");
+    if (panel.showToolbar === false) {
+      this._navBar.setAttribute("collapsed", "true");
+    } else {
+      this._navBar.removeAttribute("collapsed");
+    }
   }
 
   // ── Panel Expand / Collapse ───────────────────────────────────────
@@ -328,15 +333,18 @@ const CSS_TEXT = `
   position: relative; z-index: 1;
 }
 
-/* ── Splitter ──────────────────────────────────────────────── */
+/* ── Splitter (inside sidebar box, left edge) ──────────────── */
 #zen-sidebar-splitter {
-  width: 3px; min-width: 3px; border: none; cursor: ew-resize;
-  background: transparent; z-index: 10001;
+  -moz-appearance: none; appearance: none;
+  width: 5px; min-width: 5px; max-width: 5px;
+  border: none; cursor: ew-resize;
+  background: transparent;
+  position: relative; z-index: 100;
 }
 #zen-sidebar-splitter:hover {
   background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent));
 }
-#zen-sidebar-splitter[hidden="true"] { display: none; }
+#zen-sidebar-splitter[hidden="true"] { display: none !important; }
 
 /* ── Panel Area (collapsible) ──────────────────────────────── */
 #zen-sidebar-panel-area {
@@ -353,7 +361,7 @@ const CSS_TEXT = `
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
   min-height: 32px;
 }
-#zen-sidebar-navbar[collapsed="true"] { display: none; }
+#zen-sidebar-navbar[collapsed="true"] { display: none !important; }
 
 .zen-sb-nav-btn {
   -moz-appearance: none; appearance: none;
