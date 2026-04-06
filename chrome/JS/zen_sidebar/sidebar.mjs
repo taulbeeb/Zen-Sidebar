@@ -365,11 +365,14 @@ const CSS_TEXT = `
   background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent));
 }
 
-/* ── Panel Area (collapsible) ──────────────────────────────── */
+/* ── Panel Area (collapsible, rounded card) ───────────────── */
 #zen-sidebar-panel-area {
   display: flex; flex-direction: column;
   flex: 1; min-width: 0;
   overflow: hidden;
+  background: var(--zen-themed-toolbar-bg, color-mix(in srgb, var(--toolbar-bgcolor, #2b2a33) 95%, white));
+  border-radius: 8px;
+  margin: 4px 0 4px 4px;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
@@ -377,9 +380,8 @@ const CSS_TEXT = `
 #zen-sidebar-navbar {
   display: flex; align-items: center; gap: 2px;
   padding: 4px 6px;
-  background: var(--toolbar-bgcolor, #1c1b22);
-  border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
   min-height: 34px; flex-shrink: 0;
+  border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-navbar[collapsed="true"] { display: none !important; }
 
@@ -391,6 +393,7 @@ const CSS_TEXT = `
   transition: opacity 0.15s, background 0.15s;
   -moz-box-pack: center; -moz-box-align: center;
 }
+.zen-sb-nav-btn .toolbarbutton-text { display: none; }
 .zen-sb-nav-btn .toolbarbutton-icon {
   width: 14px; height: 14px;
   -moz-context-properties: fill; fill: var(--toolbar-color, #fbfbfe);
@@ -412,11 +415,12 @@ const CSS_TEXT = `
 
 /* ── Panel Container ──────────────────────────────────────── */
 #zen-sidebar-panel-container {
-  display: flex; flex-direction: column; flex: 1; overflow: hidden;
+  display: flex; flex-direction: column; flex: 1;
+  overflow: hidden;
+  border-radius: 0 0 8px 8px;
 }
 .zen-sidebar-web-panel-browser {
   flex: 1; border: none;
-  background: var(--toolbar-bgcolor, #1c1b22);
 }
 
 /* ── Icon Toolbar (always visible, fixed width) ───────────── */
