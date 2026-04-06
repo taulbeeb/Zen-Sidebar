@@ -49,9 +49,9 @@ export class ZenSidebar {
 
     this._sidebarBox = this._el("vbox", { id: "zen-sidebar-box", hidden: "true" });
 
-    // Drag handle for resizing (plain vbox, not XUL splitter which resizes siblings)
-    this._dragHandle = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-    this._dragHandle.id = "zen-sidebar-drag-handle";
+    // Drag handle - XUL vbox in the flex row, before panel area
+    this._dragHandle = this._el("vbox", { id: "zen-sidebar-drag-handle" });
+    this._dragHandle.style.display = "none";
     this._dragHandle.addEventListener("mousedown", (e) => {
       if (e.button === 0) this._onDragResize(e);
     });
@@ -77,9 +77,8 @@ export class ZenSidebar {
 
     const toolbarEl = this.toolbar.build();
 
-    this._sidebarBox.append(this._panelArea, toolbarEl);
-    // Drag handle is an HTML div overlaid on the left edge of the sidebar
-    this._sidebarBox.appendChild(this._dragHandle);
+    // Layout: [drag-handle | panel-area | icon-toolbar]
+    this._sidebarBox.append(this._dragHandle, this._panelArea, toolbarEl);
     container.appendChild(this._sidebarBox);
     this._applyMode();
   }
@@ -355,12 +354,12 @@ const CSS_TEXT = `
   position: relative; z-index: 1;
 }
 
-/* ── Drag Handle (overlaid on left edge) ───────────────────── */
+/* ── Drag Handle (flex child, left of panel area) ──────────── */
 #zen-sidebar-drag-handle {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  width: 6px; cursor: ew-resize;
-  background: transparent; z-index: 100;
-  display: none;
+  width: 5px; min-width: 5px; max-width: 5px;
+  cursor: ew-resize;
+  background: transparent;
+  flex-shrink: 0;
 }
 #zen-sidebar-drag-handle:hover {
   background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent));
@@ -416,36 +415,40 @@ const CSS_TEXT = `
   flex: 1; border: none; background: var(--toolbar-bgcolor, #1c1b22);
 }
 
-/* ── Icon Toolbar (always visible, 48px wide) ──────────────── */
+/* ── Icon Toolbar (always visible, fixed width) ───────────── */
 #zen-sidebar-toolbar {
   display: flex; flex-direction: column;
-  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; flex-shrink: 0;
+  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; max-width: ${TOOLBAR_WIDTH}px;
+  flex-shrink: 0;
   background: var(--toolbar-bgcolor, #1c1b22);
   padding: 8px 0;
   box-sizing: border-box;
+  align-items: center;
+  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-toolbar-icons {
   display: flex; flex-direction: column;
   align-items: center; gap: 4px;
   overflow-y: auto; overflow-x: hidden;
   padding: 0; flex: 1;
+  width: 100%;
 }
 
 /* ── Panel Icons ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon {
   appearance: none;
-  width: 34px; height: 34px; min-height: 34px;
-  border-radius: 8px; background: transparent;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
   border: 2px solid transparent;
   cursor: grab;
-  padding: 0;
+  padding: 0; margin: 0 auto;
   position: relative;
-  display: flex; align-items: center; justify-content: center;
   transition: background 0.12s, border-color 0.12s;
   box-sizing: border-box;
 }
 .zen-sidebar-panel-icon .toolbarbutton-icon {
   width: 20px; height: 20px;
+  margin: auto;
 }
 .zen-sidebar-panel-icon:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08));
@@ -473,8 +476,9 @@ const CSS_TEXT = `
 /* ── Add Button ────────────────────────────────────────────── */
 #zen-sidebar-add-btn {
   appearance: none;
-  width: 34px; height: 34px; min-height: 34px;
-  border-radius: 8px; background: transparent;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
+  margin: 0 auto;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
@@ -492,8 +496,9 @@ const CSS_TEXT = `
   opacity: 0.7; cursor: grabbing !important;
 }
 .zen-sidebar-drag-placeholder {
-  width: 34px; min-height: 34px;
-  border-radius: 8px;
+  width: 36px; min-height: 36px;
+  border-radius: 10px;
+  margin: 0 auto;
   background: var(--zen-primary-color, AccentColor);
   opacity: 0.2;
 }
