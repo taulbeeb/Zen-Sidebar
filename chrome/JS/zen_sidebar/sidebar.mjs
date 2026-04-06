@@ -365,13 +365,13 @@ const CSS_TEXT = `
   background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent));
 }
 
-/* ── Panel Area (collapsible, rounded card) ───────────────── */
+/* ── Panel Area (collapsible, rounded with spacing) ────────── */
 #zen-sidebar-panel-area {
   display: flex; flex-direction: column;
   flex: 1; min-width: 0;
   overflow: hidden;
-  border-radius: 8px;
-  margin: 4px 8px 4px 4px;
+  border-radius: 10px;
+  margin: 6px 6px 6px 0;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
@@ -428,7 +428,6 @@ const CSS_TEXT = `
 #zen-sidebar-panel-container {
   display: flex; flex-direction: column; flex: 1;
   overflow: hidden;
-  border-radius: 0 0 8px 8px;
 }
 .zen-sidebar-web-panel-browser {
   flex: 1; border: none;
