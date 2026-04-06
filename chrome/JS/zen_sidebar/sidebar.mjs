@@ -338,14 +338,12 @@ const CSS_TEXT = `
 /* ── Sidebar Outer Box ─────────────────────────────────────── */
 #zen-sidebar-box {
   display: flex; flex-direction: row;
-  background: var(--toolbar-bgcolor, #1c1b22);
-  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
+  background: transparent;
   font-family: system-ui, -apple-system, sans-serif;
   overflow: visible;
   position: relative;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
-#zen-sidebar-box:not([data-panel-open]) { border-left: none; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
   position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
   box-shadow: -2px 0 12px rgba(0,0,0,0.25);
