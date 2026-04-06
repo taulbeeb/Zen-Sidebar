@@ -1,0 +1,14 @@
+/* Zen Sidebar - userChrome.css
+ *
+ * This file is loaded by Zen/Firefox when
+ * toolkit.legacyUserProfileCustomizations.stylesheets = true
+ *
+ * The main sidebar styles are loaded programmatically from
+ * chrome/JS/zen_sidebar/sidebar.css via the userChrome.js module.
+ * This file provides any additional overrides or fallbacks.
+ */
+
+/* Ensure the sidebar doesn't conflict with Zen's built-in sidebar */
+#zen-sidebar-box {
+  -moz-box-ordinal-group: 1000;
+}

@@ -1,0 +1,323 @@
+/* ══════════════════════════════════════════════════════════════════
+   Zen Sidebar - Web Panels
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --zen-sidebar-width: 400px;
+  --zen-sidebar-bg: var(--toolbar-bgcolor, #1c1b22);
+  --zen-sidebar-border: var(--chrome-content-separator-color, rgba(128, 128, 128, 0.3));
+  --zen-sidebar-header-bg: var(--toolbar-bgcolor, #2b2a33);
+  --zen-sidebar-toolbar-bg: var(--toolbar-bgcolor, #1c1b22);
+  --zen-sidebar-icon-size: 36px;
+  --zen-sidebar-toolbar-width: 48px;
+  --zen-sidebar-text: var(--toolbar-color, #fbfbfe);
+  --zen-sidebar-hover: var(--toolbarbutton-hover-background, rgba(255, 255, 255, 0.08));
+  --zen-sidebar-active: var(--toolbarbutton-active-background, rgba(255, 255, 255, 0.15));
+  --zen-sidebar-accent: var(--zen-primary-color, #7b68ee);
+}
+
+/* ── Main Container ──────────────────────────────────────────────── */
+
+#zen-sidebar-box {
+  display: flex;
+  flex-direction: row;
+  background-color: var(--zen-sidebar-bg);
+  border-left: 1px solid var(--zen-sidebar-border);
+  min-width: 250px;
+  max-width: 50vw;
+  position: relative;
+  z-index: 1;
+}
+
+/* Overlay mode: float above content */
+#zen-sidebar-box[data-mode="overlay"] {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 10000;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Resize mode: inline in the layout */
+#zen-sidebar-box[data-mode="resize"] {
+  position: relative;
+  z-index: 1;
+}
+
+/* Animation */
+#zen-sidebar-box.zen-sidebar-open {
+  animation: zen-sidebar-slide-in 0.2s ease-out;
+}
+
+@keyframes zen-sidebar-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ── Splitter ────────────────────────────────────────────────────── */
+
+#zen-sidebar-splitter {
+  width: 4px;
+  min-width: 4px;
+  background-color: transparent;
+  border: none;
+  cursor: ew-resize;
+  position: relative;
+  z-index: 10001;
+}
+
+#zen-sidebar-splitter:hover {
+  background-color: var(--zen-sidebar-accent);
+}
+
+/* ── Header ──────────────────────────────────────────────────────── */
+
+#zen-sidebar-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: var(--zen-sidebar-header-bg);
+  border-bottom: 1px solid var(--zen-sidebar-border);
+  min-height: 36px;
+  flex-shrink: 0;
+  flex: 1;
+}
+
+#zen-sidebar-title {
+  color: var(--zen-sidebar-text);
+  font-size: 13px;
+  font-weight: 600;
+  margin-inline-start: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#zen-sidebar-header-buttons {
+  display: flex;
+  gap: 2px;
+  margin-inline-start: auto;
+}
+
+.zen-sidebar-header-btn {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--zen-sidebar-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zen-sidebar-header-btn:hover {
+  background-color: var(--zen-sidebar-hover);
+}
+
+/* Mode toggle icon */
+#zen-sidebar-mode-toggle::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-color: var(--zen-sidebar-text);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+#zen-sidebar-mode-toggle[data-mode="overlay"]::before {
+  mask-image: url("chrome://global/skin/icons/open-in-new.svg");
+}
+
+#zen-sidebar-mode-toggle[data-mode="resize"]::before {
+  mask-image: url("chrome://global/skin/icons/arrow-left.svg");
+}
+
+/* Close button icon */
+#zen-sidebar-close::before {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  background-color: var(--zen-sidebar-text);
+  mask-image: url("chrome://global/skin/icons/close.svg");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+}
+
+#zen-sidebar-close:hover {
+  background-color: rgba(255, 80, 80, 0.3);
+}
+
+/* ── Panel Container ─────────────────────────────────────────────── */
+
+#zen-sidebar-panel-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  background-color: var(--zen-sidebar-bg);
+}
+
+.zen-sidebar-web-panel-browser {
+  flex: 1;
+  border: none;
+  background-color: white;
+}
+
+/* ── Toolbar (vertical icon strip) ───────────────────────────────── */
+
+#zen-sidebar-toolbar {
+  display: flex;
+  flex-direction: column;
+  width: var(--zen-sidebar-toolbar-width);
+  min-width: var(--zen-sidebar-toolbar-width);
+  background-color: var(--zen-sidebar-toolbar-bg);
+  border-left: 1px solid var(--zen-sidebar-border);
+  padding: 6px 0;
+  flex-shrink: 0;
+  order: 1;
+}
+
+#zen-sidebar-toolbar-icons {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+#zen-sidebar-toolbar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: auto;
+  padding: 4px 0;
+  border-top: 1px solid var(--zen-sidebar-border);
+}
+
+/* ── Panel Icons ─────────────────────────────────────────────────── */
+
+.zen-sidebar-panel-icon {
+  appearance: none;
+  width: var(--zen-sidebar-icon-size);
+  height: var(--zen-sidebar-icon-size);
+  border-radius: 8px;
+  background: transparent;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.zen-sidebar-panel-icon .toolbarbutton-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.zen-sidebar-panel-icon:hover {
+  background-color: var(--zen-sidebar-hover);
+}
+
+.zen-sidebar-panel-icon[data-active="true"] {
+  background-color: var(--zen-sidebar-active);
+  border-color: var(--zen-sidebar-accent);
+}
+
+/* ── Add Button ──────────────────────────────────────────────────── */
+
+#zen-sidebar-add-btn {
+  appearance: none;
+  width: var(--zen-sidebar-icon-size);
+  height: var(--zen-sidebar-icon-size);
+  border-radius: 8px;
+  background: transparent;
+  border: 2px dashed rgba(128, 128, 128, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--zen-sidebar-text);
+  font-size: 20px;
+  font-weight: 300;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#zen-sidebar-add-btn .toolbarbutton-text {
+  margin: 0;
+  padding: 0;
+}
+
+#zen-sidebar-add-btn:hover {
+  background-color: var(--zen-sidebar-hover);
+  border-color: var(--zen-sidebar-accent);
+}
+
+/* ── Scrollbar Styling ───────────────────────────────────────────── */
+
+#zen-sidebar-toolbar-icons::-webkit-scrollbar,
+#zen-sidebar-toolbar-icons scrollbar {
+  width: 3px;
+}
+
+#zen-sidebar-toolbar-icons::-webkit-scrollbar-thumb {
+  background-color: rgba(128, 128, 128, 0.3);
+  border-radius: 3px;
+}
+
+/* ── Layout: header + panel stack left, toolbar right ────────────── */
+
+#zen-sidebar-box {
+  flex-direction: row;
+}
+
+#zen-sidebar-header,
+#zen-sidebar-panel-container {
+  order: 0;
+}
+
+/* Stack header above panel content */
+#zen-sidebar-box {
+  display: grid;
+  grid-template-columns: 1fr var(--zen-sidebar-toolbar-width);
+  grid-template-rows: auto 1fr;
+}
+
+#zen-sidebar-header {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+#zen-sidebar-panel-container {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+#zen-sidebar-toolbar {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+
+/* ── Context Menu ────────────────────────────────────────────────── */
+
+#zen-sidebar-ctx-menu {
+  appearance: auto;
+  -moz-default-appearance: menupopup;
+}
