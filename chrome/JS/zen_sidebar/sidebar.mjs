@@ -376,21 +376,20 @@ const CSS_TEXT = `
 /* ── Nav Bar ───────────────────────────────────────────────── */
 #zen-sidebar-navbar {
   display: flex; align-items: center; gap: 2px;
-  padding: 6px 8px;
+  padding: 4px 6px;
   background: var(--toolbar-bgcolor, #1c1b22);
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
-  min-height: 36px; flex-shrink: 0;
-  border-radius: 8px 8px 0 0;
-  margin: 4px 4px 0 4px;
+  min-height: 34px; flex-shrink: 0;
 }
 #zen-sidebar-navbar[collapsed="true"] { display: none !important; }
 
 .zen-sb-nav-btn {
   appearance: none; width: 28px; height: 28px; min-width: 28px; min-height: 28px;
   border-radius: 6px; background: transparent; border: none;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
   padding: 0; opacity: 0.7;
   transition: opacity 0.15s, background 0.15s;
+  -moz-box-pack: center; -moz-box-align: center;
 }
 .zen-sb-nav-btn .toolbarbutton-icon {
   width: 14px; height: 14px;
@@ -411,16 +410,13 @@ const CSS_TEXT = `
 #zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/open-in-new.svg"); }
 #zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/arrow-left.svg"); }
 
-/* ── Panel Container (rounded edges like Zen) ──────────────── */
+/* ── Panel Container ──────────────────────────────────────── */
 #zen-sidebar-panel-container {
   display: flex; flex-direction: column; flex: 1; overflow: hidden;
-  border-radius: 8px;
-  margin: 0 4px 4px 4px;
 }
 .zen-sidebar-web-panel-browser {
   flex: 1; border: none;
   background: var(--toolbar-bgcolor, #1c1b22);
-  border-radius: 8px;
 }
 
 /* ── Icon Toolbar (always visible, fixed width) ───────────── */
@@ -431,7 +427,6 @@ const CSS_TEXT = `
   background: var(--toolbar-bgcolor, #1c1b22);
   padding: 8px 0;
   box-sizing: border-box;
-  align-items: center;
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-toolbar-icons {
@@ -439,7 +434,6 @@ const CSS_TEXT = `
   align-items: center; gap: 4px;
   overflow-y: auto; overflow-x: hidden;
   padding: 0; flex: 1;
-  width: 100%;
 }
 
 /* ── Panel Icons ───────────────────────────────────────────── */
@@ -449,15 +443,16 @@ const CSS_TEXT = `
   border-radius: 10px; background: transparent;
   border: 2px solid transparent;
   cursor: grab;
-  padding: 0; margin: 0 auto;
+  padding: 0;
   position: relative;
   transition: background 0.12s, border-color 0.12s;
   box-sizing: border-box;
+  -moz-box-pack: center; -moz-box-align: center;
 }
 .zen-sidebar-panel-icon .toolbarbutton-icon {
   width: 20px; height: 20px;
-  margin: auto;
 }
+.zen-sidebar-panel-icon .toolbarbutton-text { display: none; }
 .zen-sidebar-panel-icon:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08));
 }
@@ -486,13 +481,12 @@ const CSS_TEXT = `
   appearance: none;
   width: 36px; height: 36px; min-width: 36px; min-height: 36px;
   border-radius: 10px; background: transparent;
-  margin: 0 auto;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
   opacity: 0.5; transition: opacity 0.15s, border-color 0.15s;
-  display: flex; align-items: center; justify-content: center;
   box-sizing: border-box;
+  -moz-box-pack: center; -moz-box-align: center;
 }
 #zen-sidebar-add-btn .toolbarbutton-text { margin: 0; padding: 0; }
 #zen-sidebar-add-btn:hover {
