@@ -2,8 +2,7 @@ import { PanelManager } from "./panel_manager.mjs";
 import { Toolbar } from "./toolbar.mjs";
 
 const PREF_MODE = "zen.sidebar.mode";
-const PREF_WIDTH = "zen.sidebar.width";
-const SIDEBAR_DEFAULT_WIDTH = 400;
+const SIDEBAR_DEFAULT_WIDTH = 450;
 const TOOLBAR_WIDTH = 48;
 
 export class ZenSidebar {
@@ -85,8 +84,6 @@ export class ZenSidebar {
     return btn;
   }
 
-  // ── Navigation Actions ────────────────────────────────────────────
-
   _navAction(action) {
     const panel = this.panelManager.activePanel;
     if (!panel || !panel._browser) return;
@@ -112,9 +109,11 @@ export class ZenSidebar {
     this._panelOpen = true;
     this._panelArea.removeAttribute("hidden");
     this._splitter.removeAttribute("hidden");
+    // Use JS classes instead of :has() since XUL doesn't support it
+    this._sidebarBox.setAttribute("data-panel-open", "true");
 
-    const width = (panel?.width || this._getWidth()) + TOOLBAR_WIDTH;
-    this._sidebarBox.style.width = `${width}px`;
+    const panelWidth = panel?.width || SIDEBAR_DEFAULT_WIDTH;
+    this._sidebarBox.style.width = `${panelWidth + TOOLBAR_WIDTH}px`;
 
     this._applyMode();
     this.updateNavBarVisibility();
@@ -125,6 +124,7 @@ export class ZenSidebar {
     this._panelOpen = false;
     this._panelArea.setAttribute("hidden", "true");
     this._splitter.setAttribute("hidden", "true");
+    this._sidebarBox.removeAttribute("data-panel-open");
     this._sidebarBox.style.width = "";
     this._clearResize();
     this.toolbar.clearActive();
@@ -140,12 +140,12 @@ export class ZenSidebar {
     this.expandPanel(panel);
   }
 
-  // ── Add/Edit Panel (using Services.prompt - reliable) ─────────────
+  // ── Add/Edit Panel ────────────────────────────────────────────────
 
   showAddPanelForm(editPanel = null) {
     const isEdit = !!editPanel;
 
-    // 1. URL
+    // URL
     const url = { value: isEdit ? editPanel.url : "https://" };
     const urlOk = Services.prompt.prompt(
       this.win, isEdit ? "Edit Panel" : "Add Panel",
@@ -156,22 +156,13 @@ export class ZenSidebar {
     let finalURL = url.value.trim();
     if (!/^https?:\/\//i.test(finalURL)) finalURL = "https://" + finalURL;
 
-    // 2. Width
-    const widthStr = { value: String(isEdit ? (editPanel.width || this._getWidth()) : this._getWidth()) };
-    const widthOk = Services.prompt.prompt(
-      this.win, isEdit ? "Edit Panel" : "Add Panel",
-      "Panel Width (200-800):", widthStr, null, { value: false }
-    );
-    if (!widthOk) return;
-    const width = Math.max(200, Math.min(800, parseInt(widthStr.value, 10) || this._getWidth()));
-
-    // 3. Container
+    // Container
     const containers = this.panelManager.getContainers();
-    let userContextId = 0;
+    let userContextId = isEdit ? (editPanel.userContextId || 0) : 0;
     if (containers.length > 0) {
       const names = ["No Container", ...containers.map((c) => c.name)];
       const ids = [0, ...containers.map((c) => c.userContextId)];
-      const selected = { value: isEdit ? Math.max(0, ids.indexOf(editPanel.userContextId || 0)) : 0 };
+      const selected = { value: Math.max(0, ids.indexOf(userContextId)) };
       const cOk = Services.prompt.select(
         this.win, "Container",
         "Open this panel in a container:", names, selected
@@ -180,22 +171,20 @@ export class ZenSidebar {
       userContextId = ids[selected.value];
     }
 
-    // 4. Mobile UA
+    // Mobile UA
     const mobileUA = { value: isEdit ? editPanel.mobileUA !== false : true };
     Services.prompt.confirmCheck(
       this.win, isEdit ? "Edit Panel" : "Add Panel",
-      `URL: ${finalURL}\nWidth: ${width}`,
+      `URL: ${finalURL}`,
       "Use Mobile User Agent", mobileUA
     );
 
-    // Apply
     if (isEdit) {
-      editPanel.width = width;
       editPanel.mobileUA = mobileUA.value;
       this.panelManager.editPanel(editPanel, finalURL, null, null, userContextId);
     } else {
       this.panelManager.addPanel(finalURL, null, null, userContextId, {
-        width,
+        width: SIDEBAR_DEFAULT_WIDTH,
         mobileUA: mobileUA.value,
       });
     }
@@ -228,7 +217,7 @@ export class ZenSidebar {
 
   _pushContent() {
     const appcontent = this.doc.getElementById("appcontent");
-    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + TOOLBAR_WIDTH;
+    const w = parseInt(this._sidebarBox.style.width, 10) || SIDEBAR_DEFAULT_WIDTH + TOOLBAR_WIDTH;
     if (appcontent) appcontent.style.marginRight = `${w}px`;
   }
 
@@ -237,7 +226,7 @@ export class ZenSidebar {
     if (appcontent) appcontent.style.marginRight = "";
   }
 
-  // ── Splitter / Resize ─────────────────────────────────────────────
+  // ── Splitter / Resize (saves per-panel width) ─────────────────────
 
   _onSplitterDrag() {
     const onMouseMove = (e) => {
@@ -249,9 +238,14 @@ export class ZenSidebar {
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
+      // Save width to the active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
       const panelW = totalW - TOOLBAR_WIDTH;
-      if (panelW > 0) Services.prefs.setIntPref(PREF_WIDTH, panelW);
+      const active = this.panelManager.activePanel;
+      if (active && panelW > 0) {
+        active.width = panelW;
+        this.panelManager.save();
+      }
     };
     this.doc.addEventListener("mousemove", onMouseMove);
     this.doc.addEventListener("mouseup", onMouseUp);
@@ -290,14 +284,7 @@ export class ZenSidebar {
     this.panelManager.save();
   }
 
-  _getWidth() {
-    try { return Services.prefs.getIntPref(PREF_WIDTH, SIDEBAR_DEFAULT_WIDTH); }
-    catch { return SIDEBAR_DEFAULT_WIDTH; }
-  }
-
   _restorePanels() { this.panelManager.restore(); }
-
-  // ── Utility ───────────────────────────────────────────────────────
 
   _el(tag, attrs = {}) {
     const el = this.doc.createXULElement(tag);
@@ -316,19 +303,28 @@ export class ZenSidebar {
 const CSS_TEXT = `
 /* ── Sidebar Outer Box ─────────────────────────────────────── */
 #zen-sidebar-box {
-  display: flex; flex-direction: row;
+  display: -moz-box; -moz-box-orient: horizontal;
   background: var(--toolbar-bgcolor, #1c1b22);
-  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
   font-family: system-ui, -apple-system, sans-serif;
   overflow: visible;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
-#zen-sidebar-box:not(:has(#zen-sidebar-panel-area:not([hidden]))) { border-left: none; }
-#zen-sidebar-box[data-mode="overlay"]:has(#zen-sidebar-panel-area:not([hidden])) {
+
+/* Collapsed: just toolbar, no border */
+#zen-sidebar-box:not([data-panel-open]) {
+  border-left: none;
+}
+/* Expanded: has border */
+#zen-sidebar-box[data-panel-open] {
+  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
+}
+
+/* Overlay mode when panel open */
+#zen-sidebar-box[data-panel-open][data-mode="overlay"] {
   position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
   box-shadow: -2px 0 12px rgba(0,0,0,0.25);
 }
-#zen-sidebar-box[data-mode="resize"]:has(#zen-sidebar-panel-area:not([hidden])) {
+#zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
 
@@ -344,28 +340,26 @@ const CSS_TEXT = `
 
 /* ── Panel Area (collapsible) ──────────────────────────────── */
 #zen-sidebar-panel-area {
-  display: flex; flex-direction: column;
-  flex: 1; min-width: 0;
-  overflow: hidden;
+  display: -moz-box; -moz-box-orient: vertical; -moz-box-flex: 1;
+  min-width: 0; overflow: hidden;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
 /* ── Nav Bar ───────────────────────────────────────────────── */
 #zen-sidebar-navbar {
-  display: flex; align-items: center; gap: 1px;
-  padding: 4px 6px;
+  display: -moz-box; -moz-box-align: center;
+  padding: 4px 6px; gap: 1px;
   background: var(--toolbar-bgcolor, #1c1b22);
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
-  min-height: 32px; flex-shrink: 0;
+  min-height: 32px;
 }
 #zen-sidebar-navbar[collapsed="true"] { display: none; }
 
 .zen-sb-nav-btn {
-  appearance: none; width: 28px; height: 28px;
+  -moz-appearance: none; appearance: none;
+  width: 28px; height: 28px; min-width: 28px; min-height: 28px;
   border-radius: 6px; background: transparent; border: none;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  padding: 0; opacity: 0.7;
-  transition: opacity 0.15s, background 0.15s;
+  cursor: pointer; padding: 0; opacity: 0.7;
 }
 .zen-sb-nav-btn .toolbarbutton-icon {
   width: 14px; height: 14px;
@@ -377,7 +371,7 @@ const CSS_TEXT = `
 .zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
 #zen-sb-mode .toolbarbutton-icon { display: none; }
 #zen-sb-mode::after {
-  content: ""; width: 14px; height: 14px;
+  content: ""; display: block; width: 14px; height: 14px; margin: auto;
   background: var(--toolbar-color, #fbfbfe);
   mask-size: contain; mask-repeat: no-repeat; mask-position: center; opacity: 0.7;
 }
@@ -386,42 +380,41 @@ const CSS_TEXT = `
 
 /* ── Panel Container ───────────────────────────────────────── */
 #zen-sidebar-panel-container {
-  display: flex; flex-direction: column; flex: 1; overflow: hidden;
+  display: -moz-box; -moz-box-orient: vertical; -moz-box-flex: 1;
+  overflow: hidden;
 }
 .zen-sidebar-web-panel-browser {
-  flex: 1; border: none; background: var(--toolbar-bgcolor, #1c1b22);
+  -moz-box-flex: 1; border: none;
+  background: var(--toolbar-bgcolor, #1c1b22);
 }
 
-/* ── Icon Toolbar (always visible, 48px wide) ──────────────── */
+/* ── Icon Toolbar (always visible) ─────────────────────────── */
 #zen-sidebar-toolbar {
-  display: flex; flex-direction: column;
-  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; flex-shrink: 0;
+  display: -moz-box; -moz-box-orient: vertical;
+  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px;
   background: var(--toolbar-bgcolor, #1c1b22);
   padding: 8px 0;
-  box-sizing: border-box;
 }
 #zen-sidebar-toolbar-icons {
-  display: flex; flex-direction: column;
-  align-items: center; gap: 4px;
+  display: -moz-box; -moz-box-orient: vertical; -moz-box-align: center; -moz-box-flex: 1;
   overflow-y: auto; overflow-x: hidden;
-  padding: 0; flex: 1;
+  padding: 0; gap: 4px;
 }
 
 /* ── Panel Icons ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon {
-  appearance: none;
-  width: 34px; height: 34px; min-height: 34px;
-  border-radius: 8px; background: transparent;
+  -moz-appearance: none; appearance: none;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
   border: 2px solid transparent;
-  cursor: grab;
-  padding: 0;
+  cursor: grab; padding: 0; margin: 0;
   position: relative;
-  display: flex; align-items: center; justify-content: center;
   transition: background 0.12s, border-color 0.12s;
-  box-sizing: border-box;
+  -moz-box-sizing: border-box; box-sizing: border-box;
 }
 .zen-sidebar-panel-icon .toolbarbutton-icon {
   width: 20px; height: 20px;
+  margin: auto;
 }
 .zen-sidebar-panel-icon:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08));
@@ -448,15 +441,14 @@ const CSS_TEXT = `
 
 /* ── Add Button ────────────────────────────────────────────── */
 #zen-sidebar-add-btn {
-  appearance: none;
-  width: 34px; height: 34px; min-height: 34px;
-  border-radius: 8px; background: transparent;
+  -moz-appearance: none; appearance: none;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
   opacity: 0.5; transition: opacity 0.15s, border-color 0.15s;
-  display: flex; align-items: center; justify-content: center;
-  box-sizing: border-box;
+  -moz-box-sizing: border-box; box-sizing: border-box;
 }
 #zen-sidebar-add-btn .toolbarbutton-text { margin: 0; padding: 0; }
 #zen-sidebar-add-btn:hover {
@@ -468,12 +460,12 @@ const CSS_TEXT = `
   opacity: 0.7; cursor: grabbing !important;
 }
 .zen-sidebar-drag-placeholder {
-  width: 34px; min-height: 34px;
-  border-radius: 8px;
+  width: 36px; min-height: 36px;
+  border-radius: 10px;
   background: var(--zen-primary-color, AccentColor);
   opacity: 0.2;
 }
 
 /* ── Context Menu ──────────────────────────────────────────── */
-#zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
+#zen-sidebar-ctx-menu { -moz-appearance: menupopup; appearance: auto; }
 `;
