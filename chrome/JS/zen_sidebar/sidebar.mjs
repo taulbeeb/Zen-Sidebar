@@ -48,8 +48,11 @@ export class ZenSidebar {
 
     this._sidebarBox = this._el("hbox", { id: "zen-sidebar-box", hidden: "true" });
 
-    this._splitter = this._el("splitter", { id: "zen-sidebar-splitter", hidden: "true" });
-    this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
+    // Custom drag handle (not a XUL splitter - those resize siblings unpredictably)
+    this._splitter = this._el("vbox", { id: "zen-sidebar-splitter", hidden: "true" });
+    this._splitter.addEventListener("mousedown", (e) => {
+      if (e.button === 0) this._onSplitterDrag(e);
+    });
 
     // Panel area (nav + content) - collapsible
     this._panelArea = this._el("vbox", { id: "zen-sidebar-panel-area", hidden: "true", flex: "1" });
@@ -233,17 +236,22 @@ export class ZenSidebar {
 
   // ── Splitter / Resize (saves per-panel width) ─────────────────────
 
-  _onSplitterDrag() {
+  _onSplitterDrag(startEvent) {
+    startEvent.preventDefault();
+    const startX = startEvent.clientX;
+    const startWidth = parseInt(this._sidebarBox.style.width, 10) ||
+      this._sidebarBox.getBoundingClientRect().width;
+
     const onMouseMove = (e) => {
-      const rect = this._container.getBoundingClientRect();
-      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, rect.right - e.clientX));
+      e.preventDefault();
+      const delta = startX - e.clientX; // dragging left = wider
+      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, startWidth + delta));
       this._sidebarBox.style.width = `${totalW}px`;
       if (this._mode === "resize") this._pushContent();
     };
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
-      // Save width to the active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
       const panelW = totalW - TOOLBAR_WIDTH;
       const active = this.panelManager.activePanel;
@@ -333,11 +341,11 @@ const CSS_TEXT = `
   position: relative; z-index: 1;
 }
 
-/* ── Splitter (inside sidebar box, left edge) ──────────────── */
+/* ── Drag Handle (left edge of sidebar) ────────────────────── */
 #zen-sidebar-splitter {
-  -moz-appearance: none; appearance: none;
-  width: 5px; min-width: 5px; max-width: 5px;
-  border: none; cursor: ew-resize;
+  width: 5px !important; min-width: 5px !important; max-width: 5px !important;
+  -moz-box-flex: 0 !important;
+  cursor: ew-resize;
   background: transparent;
   position: relative; z-index: 100;
 }
