@@ -64,7 +64,7 @@ export class ZenSidebar {
     const backBtn = this._navBtn("zen-sb-back", "Back", "chrome://global/skin/icons/arrow-left.svg", () => this._navAction("back"));
     const fwdBtn = this._navBtn("zen-sb-forward", "Forward", "chrome://global/skin/icons/arrow-right.svg", () => this._navAction("forward"));
     const reloadBtn = this._navBtn("zen-sb-reload", "Reload", "chrome://global/skin/icons/reload.svg", () => this._navAction("reload"));
-    const homeBtn = this._navBtn("zen-sb-home", "Go to panel URL", "chrome://global/skin/icons/home.svg", () => this._navAction("home"));
+    const homeBtn = this._navBtn("zen-sb-home", "Go to panel URL", "chrome://browser/skin/home.svg", () => this._navAction("home"));
     const spacer = this._el("spacer", { flex: "1" });
     const modeBtn = this._navBtn("zen-sb-mode", "Toggle overlay/resize", null, () => this.toggleMode());
     modeBtn.setAttribute("data-mode", this._mode);
@@ -370,9 +370,8 @@ const CSS_TEXT = `
   display: flex; flex-direction: column;
   flex: 1; min-width: 0;
   overflow: hidden;
-  background: var(--zen-themed-toolbar-bg, color-mix(in srgb, var(--toolbar-bgcolor, #2b2a33) 95%, white));
   border-radius: 8px;
-  margin: 4px 0 4px 4px;
+  margin: 4px 8px 4px 4px;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
 
@@ -404,6 +403,18 @@ const CSS_TEXT = `
 /* Space before close button */
 .zen-sb-close-btn { margin-inline-start: 6px; }
 .zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
+/* Home button fallback icon */
+#zen-sb-home .toolbarbutton-icon[src=""] { display: none; }
+#zen-sb-home:not([image]) .toolbarbutton-icon,
+#zen-sb-home .toolbarbutton-icon:not([src*="://"]) { display: none; }
+#zen-sb-home::after {
+  content: ""; display: block; width: 14px; height: 14px; margin: auto;
+  background: var(--toolbar-color, #fbfbfe);
+  mask-image: url("chrome://browser/skin/home.svg");
+  mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+  opacity: 0.7;
+}
+
 #zen-sb-mode .toolbarbutton-icon { display: none; }
 #zen-sb-mode::after {
   content: ""; display: block; width: 14px; height: 14px; margin: auto;
