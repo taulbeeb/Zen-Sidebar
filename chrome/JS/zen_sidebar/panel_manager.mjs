@@ -15,13 +15,14 @@ export class PanelManager {
 
   // ── Panel CRUD ────────────────────────────────────────────────────
 
-  addPanel(url, label, icon) {
+  addPanel(url, label, icon, userContextId = 0) {
     const id = `zen-wp-${Date.now()}`;
     const panel = new WebPanel(this.sidebar, {
       id,
       url,
       label: label || this._labelFromURL(url),
       icon: icon || this._faviconURL(url),
+      userContextId,
     });
     this.panels.push(panel);
     panel.createBrowser();
@@ -50,10 +51,19 @@ export class PanelManager {
     this.save();
   }
 
-  editPanel(panel, url, label, icon) {
+  editPanel(panel, url, label, icon, userContextId) {
     panel.url = url;
     panel.label = label || this._labelFromURL(url);
     panel.icon = icon || this._faviconURL(url);
+    if (userContextId !== undefined) {
+      const containerChanged = panel.userContextId !== userContextId;
+      panel.userContextId = userContextId;
+      if (containerChanged) {
+        // Must recreate the browser element to change containers
+        panel.destroy();
+        panel.createBrowser();
+      }
+    }
     panel.reload();
     this.sidebar.toolbar.updateIcon(panel);
     this.save();
@@ -89,6 +99,7 @@ export class PanelManager {
       url: p.url,
       label: p.label,
       icon: p.icon,
+      userContextId: p.userContextId || 0,
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     const json = JSON.stringify({ panels: data, activeId });
@@ -119,6 +130,7 @@ export class PanelManager {
         url: pData.url,
         label: pData.label,
         icon: pData.icon,
+        userContextId: pData.userContextId || 0,
       });
       this.panels.push(panel);
       panel.createBrowser();
@@ -153,5 +165,44 @@ export class PanelManager {
     } catch {
       return "";
     }
+  }
+
+  /**
+   * Returns available Firefox containers (Contextual Identities).
+   * Each entry has: { userContextId, name, icon, color }
+   * Returns empty array if containers are disabled.
+   */
+  getContainers() {
+    try {
+      const start = ChromeUtils.importESModule
+        ? ChromeUtils.importESModule(
+            "resource://gre/modules/ContextualIdentityService.sys.mjs"
+          )
+        : ChromeUtils.import(
+            "resource://gre/modules/ContextualIdentityService.jsm"
+          );
+      const service =
+        start.ContextualIdentityService || ContextualIdentityService;
+      const identities = service.getPublicIdentities();
+      return identities.map((ci) => ({
+        userContextId: ci.userContextId,
+        name: ContextualIdentityService.getUserContextLabel(ci.userContextId),
+        icon: ci.icon,
+        color: ci.color,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Look up the display name for a container by its userContextId.
+   * Returns "No Container" for 0 or unknown IDs.
+   */
+  getContainerName(userContextId) {
+    if (!userContextId) return "No Container";
+    const containers = this.getContainers();
+    const match = containers.find((c) => c.userContextId === userContextId);
+    return match ? match.name : "No Container";
   }
 }

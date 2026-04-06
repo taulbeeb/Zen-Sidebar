@@ -241,6 +241,47 @@
   border-color: var(--zen-sidebar-accent);
 }
 
+/* Container color indicator dot */
+.zen-sidebar-panel-icon[data-container-color]::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--zen-sidebar-bg);
+}
+
+.zen-sidebar-panel-icon {
+  position: relative;
+}
+
+.zen-sidebar-panel-icon[data-container-color="blue"]::after {
+  background-color: #37adff;
+}
+.zen-sidebar-panel-icon[data-container-color="turquoise"]::after {
+  background-color: #00c79a;
+}
+.zen-sidebar-panel-icon[data-container-color="green"]::after {
+  background-color: #51cd00;
+}
+.zen-sidebar-panel-icon[data-container-color="yellow"]::after {
+  background-color: #ffcb00;
+}
+.zen-sidebar-panel-icon[data-container-color="orange"]::after {
+  background-color: #ff9f00;
+}
+.zen-sidebar-panel-icon[data-container-color="red"]::after {
+  background-color: #ff613d;
+}
+.zen-sidebar-panel-icon[data-container-color="pink"]::after {
+  background-color: #ff4bda;
+}
+.zen-sidebar-panel-icon[data-container-color="purple"]::after {
+  background-color: #af51f5;
+}
+
 /* ── Add Button ──────────────────────────────────────────────────── */
 
 #zen-sidebar-add-btn {

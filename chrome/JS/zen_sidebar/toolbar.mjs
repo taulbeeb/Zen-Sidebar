@@ -41,9 +41,17 @@ export class Toolbar {
   // ── Icon Management ───────────────────────────────────────────────
 
   addIcon(panel) {
+    const containerName = this.sidebar.panelManager.getContainerName(
+      panel.userContextId
+    );
+    const tooltip =
+      panel.userContextId > 0
+        ? `${panel.label} [${containerName}]`
+        : panel.label;
+
     const btn = this._el("toolbarbutton", {
       class: "zen-sidebar-panel-icon",
-      tooltiptext: panel.label,
+      tooltiptext: tooltip,
       "data-panel-id": panel.id,
     });
 
@@ -51,6 +59,9 @@ export class Toolbar {
     if (panel.icon) {
       btn.setAttribute("image", panel.icon);
     }
+
+    // Container color indicator
+    this._applyContainerColor(btn, panel);
 
     btn.addEventListener("command", () => {
       this.sidebar.switchToPanel(panel);
@@ -76,10 +87,18 @@ export class Toolbar {
   updateIcon(panel) {
     const btn = this._icons.get(panel.id);
     if (btn) {
-      btn.setAttribute("tooltiptext", panel.label);
+      const containerName = this.sidebar.panelManager.getContainerName(
+        panel.userContextId
+      );
+      const tooltip =
+        panel.userContextId > 0
+          ? `${panel.label} [${containerName}]`
+          : panel.label;
+      btn.setAttribute("tooltiptext", tooltip);
       if (panel.icon) {
         btn.setAttribute("image", panel.icon);
       }
+      this._applyContainerColor(btn, panel);
     }
   }
 
@@ -139,7 +158,45 @@ export class Toolbar {
     );
     if (!labelOk) return;
 
-    this.sidebar.panelManager.addPanel(finalURL, label.value || null, null);
+    // Container selection
+    const userContextId = this._promptContainerSelect();
+    if (userContextId === null) return; // user cancelled
+
+    this.sidebar.panelManager.addPanel(
+      finalURL,
+      label.value || null,
+      null,
+      userContextId
+    );
+  }
+
+  /**
+   * Shows a container picker dialog. Returns the selected userContextId
+   * (0 for no container), or null if the user cancelled.
+   */
+  _promptContainerSelect(currentId = 0) {
+    const containers = this.sidebar.panelManager.getContainers();
+    if (containers.length === 0) {
+      // Containers are disabled or unavailable, skip
+      return 0;
+    }
+
+    const names = ["No Container", ...containers.map((c) => c.name)];
+    const ids = [0, ...containers.map((c) => c.userContextId)];
+
+    const selected = { value: ids.indexOf(currentId) };
+    if (selected.value < 0) selected.value = 0;
+
+    const ok = Services.prompt.select(
+      this.sidebar.win,
+      "Select Container",
+      "Open this panel in a Firefox container:",
+      names,
+      selected
+    );
+    if (!ok) return null;
+
+    return ids[selected.value];
   }
 
   // ── Context Menu ──────────────────────────────────────────────────
@@ -177,6 +234,25 @@ export class Toolbar {
       this.sidebar.panelManager.movePanel(panel, 1)
     );
 
+    const containerItem = this._el("menuitem", {
+      label:
+        panel.userContextId > 0
+          ? `Container: ${this.sidebar.panelManager.getContainerName(panel.userContextId)}`
+          : "Assign container...",
+    });
+    containerItem.addEventListener("command", () => {
+      const newId = this._promptContainerSelect(panel.userContextId || 0);
+      if (newId !== null && newId !== panel.userContextId) {
+        this.sidebar.panelManager.editPanel(
+          panel,
+          panel.url,
+          panel.label,
+          panel.icon,
+          newId
+        );
+      }
+    });
+
     const sep = this._el("menuseparator", {});
 
     const removeItem = this._el("menuitem", {
@@ -186,7 +262,15 @@ export class Toolbar {
       this.sidebar.panelManager.removePanel(panel)
     );
 
-    popup.append(editItem, reloadItem, moveUpItem, moveDownItem, sep, removeItem);
+    popup.append(
+      editItem,
+      reloadItem,
+      containerItem,
+      moveUpItem,
+      moveDownItem,
+      sep,
+      removeItem
+    );
     this.doc.getElementById("mainPopupSet").appendChild(popup);
 
     popup.openPopup(event.target, "after_end", 0, 0, true, false);
@@ -216,7 +300,34 @@ export class Toolbar {
     );
     if (!labelOk) return;
 
-    this.sidebar.panelManager.editPanel(panel, url.value, label.value, null);
+    const userContextId = this._promptContainerSelect(
+      panel.userContextId || 0
+    );
+    if (userContextId === null) return;
+
+    this.sidebar.panelManager.editPanel(
+      panel,
+      url.value,
+      label.value,
+      null,
+      userContextId
+    );
+  }
+
+  // ── Container Color ────────────────────────────────────────────────
+
+  _applyContainerColor(btn, panel) {
+    if (panel.userContextId > 0) {
+      const containers = this.sidebar.panelManager.getContainers();
+      const match = containers.find(
+        (c) => c.userContextId === panel.userContextId
+      );
+      if (match && match.color) {
+        btn.setAttribute("data-container-color", match.color);
+      }
+    } else {
+      btn.removeAttribute("data-container-color");
+    }
   }
 
   // ── Utility ───────────────────────────────────────────────────────
