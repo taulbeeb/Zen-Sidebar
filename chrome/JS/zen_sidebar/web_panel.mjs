@@ -1,5 +1,5 @@
 export class WebPanel {
-  constructor(sidebar, { id, url, label, icon, userContextId = 0, showToolbar = true }) {
+  constructor(sidebar, { id, url, label, icon, userContextId = 0, showToolbar = true, width = 0, mobileUA = true }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
@@ -7,11 +7,11 @@ export class WebPanel {
     this.icon = icon;
     this.userContextId = userContextId;
     this.showToolbar = showToolbar;
+    this.width = width;       // 0 = use global default
+    this.mobileUA = mobileUA; // whether to use mobile user agent
     this._browser = null;
     this._loaded = false;
   }
-
-  // ── Browser Element ───────────────────────────────────────────────
 
   createBrowser() {
     const doc = this.sidebar.doc;
@@ -35,16 +35,15 @@ export class WebPanel {
       this._browser.setAttribute("usercontextid", String(this.userContextId));
     }
 
-    // Mobile UA for narrow sidebar panels
-    this._browser.setAttribute(
-      "useragent",
-      "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    );
+    if (this.mobileUA !== false) {
+      this._browser.setAttribute(
+        "useragent",
+        "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+      );
+    }
 
     container.appendChild(this._browser);
   }
-
-  // ── Loading ───────────────────────────────────────────────────────
 
   load() {
     if (!this._browser || this._loaded) return;
@@ -58,8 +57,6 @@ export class WebPanel {
     this._loaded = true;
   }
 
-  // ── Visibility ────────────────────────────────────────────────────
-
   show() {
     if (!this._browser) return;
     this.load();
@@ -70,8 +67,6 @@ export class WebPanel {
     if (!this._browser) return;
     this._browser.style.display = "none";
   }
-
-  // ── Cleanup ───────────────────────────────────────────────────────
 
   destroy() {
     if (this._browser) {
