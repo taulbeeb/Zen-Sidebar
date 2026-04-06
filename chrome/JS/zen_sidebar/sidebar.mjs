@@ -30,7 +30,7 @@ export class ZenSidebar {
   destroy() {
     this._removeKeybinding();
     this._savePrefs();
-    for (const el of [this._sidebarBox, this._splitter, this._inlineStyleEl]) {
+    for (const el of [this._sidebarBox, this._inlineStyleEl]) {
       if (el) el.remove();
     }
   }
@@ -49,8 +49,12 @@ export class ZenSidebar {
 
     this._sidebarBox = this._el("vbox", { id: "zen-sidebar-box", hidden: "true" });
 
-    this._splitter = this._el("splitter", { id: "zen-sidebar-splitter", hidden: "true" });
-    this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
+    // Drag handle for resizing (plain vbox, not XUL splitter which resizes siblings)
+    this._dragHandle = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
+    this._dragHandle.id = "zen-sidebar-drag-handle";
+    this._dragHandle.addEventListener("mousedown", (e) => {
+      if (e.button === 0) this._onDragResize(e);
+    });
 
     // Panel area (nav + content) - collapsible
     this._panelArea = this._el("vbox", { id: "zen-sidebar-panel-area", hidden: "true" });
@@ -74,7 +78,9 @@ export class ZenSidebar {
     const toolbarEl = this.toolbar.build();
 
     this._sidebarBox.append(this._panelArea, toolbarEl);
-    container.append(this._splitter, this._sidebarBox);
+    // Drag handle is an HTML div overlaid on the left edge of the sidebar
+    this._sidebarBox.appendChild(this._dragHandle);
+    container.appendChild(this._sidebarBox);
     this._applyMode();
   }
 
@@ -101,7 +107,11 @@ export class ZenSidebar {
   updateNavBarVisibility() {
     const panel = this.panelManager.activePanel;
     if (!panel) return;
-    this._navBar.setAttribute("collapsed", panel.showToolbar === false ? "true" : "false");
+    if (panel.showToolbar === false) {
+      this._navBar.setAttribute("collapsed", "true");
+    } else {
+      this._navBar.removeAttribute("collapsed");
+    }
   }
 
   // ── Panel Expand / Collapse ───────────────────────────────────────
@@ -111,7 +121,8 @@ export class ZenSidebar {
   expandPanel(panel) {
     this._panelOpen = true;
     this._panelArea.removeAttribute("hidden");
-    this._splitter.removeAttribute("hidden");
+    this._dragHandle.style.display = "";
+    this._sidebarBox.setAttribute("data-panel-open", "true");
 
     const width = (panel?.width || this._getWidth()) + TOOLBAR_WIDTH;
     this._sidebarBox.style.width = `${width}px`;
@@ -124,7 +135,8 @@ export class ZenSidebar {
   collapsePanel() {
     this._panelOpen = false;
     this._panelArea.setAttribute("hidden", "true");
-    this._splitter.setAttribute("hidden", "true");
+    this._dragHandle.style.display = "none";
+    this._sidebarBox.removeAttribute("data-panel-open");
     this._sidebarBox.style.width = "";
     this._clearResize();
     this.toolbar.clearActive();
@@ -237,21 +249,31 @@ export class ZenSidebar {
     if (appcontent) appcontent.style.marginRight = "";
   }
 
-  // ── Splitter / Resize ─────────────────────────────────────────────
+  // ── Drag Handle Resize (saves per-panel width) ─────────────────────
 
-  _onSplitterDrag() {
+  _onDragResize(startEvent) {
+    startEvent.preventDefault();
+    const startX = startEvent.clientX;
+    const startWidth = this._sidebarBox.getBoundingClientRect().width;
+
     const onMouseMove = (e) => {
-      const rect = this._container.getBoundingClientRect();
-      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, rect.right - e.clientX));
+      e.preventDefault();
+      const delta = startX - e.clientX; // drag left = wider
+      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, startWidth + delta));
       this._sidebarBox.style.width = `${totalW}px`;
       if (this._mode === "resize") this._pushContent();
     };
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
+      // Save to active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
       const panelW = totalW - TOOLBAR_WIDTH;
-      if (panelW > 0) Services.prefs.setIntPref(PREF_WIDTH, panelW);
+      const active = this.panelManager.activePanel;
+      if (active && panelW > 0) {
+        active.width = panelW;
+        this.panelManager.save();
+      }
     };
     this.doc.addEventListener("mousemove", onMouseMove);
     this.doc.addEventListener("mouseup", onMouseUp);
@@ -321,26 +343,28 @@ const CSS_TEXT = `
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
   font-family: system-ui, -apple-system, sans-serif;
   overflow: visible;
+  position: relative;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
-#zen-sidebar-box:not(:has(#zen-sidebar-panel-area:not([hidden]))) { border-left: none; }
-#zen-sidebar-box[data-mode="overlay"]:has(#zen-sidebar-panel-area:not([hidden])) {
+#zen-sidebar-box:not([data-panel-open]) { border-left: none; }
+#zen-sidebar-box[data-panel-open][data-mode="overlay"] {
   position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
   box-shadow: -2px 0 12px rgba(0,0,0,0.25);
 }
-#zen-sidebar-box[data-mode="resize"]:has(#zen-sidebar-panel-area:not([hidden])) {
+#zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
 
-/* ── Splitter ──────────────────────────────────────────────── */
-#zen-sidebar-splitter {
-  width: 3px; min-width: 3px; border: none; cursor: ew-resize;
-  background: transparent; z-index: 10001;
+/* ── Drag Handle (overlaid on left edge) ───────────────────── */
+#zen-sidebar-drag-handle {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 6px; cursor: ew-resize;
+  background: transparent; z-index: 100;
+  display: none;
 }
-#zen-sidebar-splitter:hover {
+#zen-sidebar-drag-handle:hover {
   background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent));
 }
-#zen-sidebar-splitter[hidden="true"] { display: none; }
 
 /* ── Panel Area (collapsible) ──────────────────────────────── */
 #zen-sidebar-panel-area {
