@@ -3,22 +3,23 @@ export class Toolbar {
     this.sidebar = sidebar;
     this.doc = sidebar.doc;
     this._icons = new Map();
+    this._dragState = null;
   }
 
   build() {
     this._toolbar = this._el("vbox", { id: "zen-sidebar-toolbar" });
     this._iconContainer = this._el("vbox", { id: "zen-sidebar-toolbar-icons", flex: "1" });
-    const bottomBar = this._el("vbox", { id: "zen-sidebar-toolbar-bottom" });
 
-    const addBtn = this._el("toolbarbutton", {
+    // Add button lives inline, inside the icon container
+    this._addBtn = this._el("toolbarbutton", {
       id: "zen-sidebar-add-btn",
       tooltiptext: "Add web panel",
       label: "+",
     });
-    addBtn.addEventListener("command", () => this.sidebar.showAddPanelForm());
+    this._addBtn.addEventListener("command", () => this.sidebar.showAddPanelForm());
+    this._iconContainer.appendChild(this._addBtn);
 
-    bottomBar.appendChild(addBtn);
-    this._toolbar.append(this._iconContainer, bottomBar);
+    this._toolbar.appendChild(this._iconContainer);
     return this._toolbar;
   }
 
@@ -33,17 +34,18 @@ export class Toolbar {
     if (panel.icon) btn.setAttribute("image", panel.icon);
     this._applyContainerColor(btn, panel);
 
-    // Click: switch or toggle
     btn.addEventListener("command", () => this.sidebar.switchToPanel(panel));
-
-    // Right-click: context menu
     btn.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this._showContextMenu(e, panel);
     });
 
+    // Drag to reorder
+    this._setupDrag(btn, panel);
+
     this._icons.set(panel.id, btn);
-    this._iconContainer.appendChild(btn);
+    // Insert before the + button so it stays at the end
+    this._iconContainer.insertBefore(btn, this._addBtn);
   }
 
   removeIcon(panel) {
@@ -70,10 +72,116 @@ export class Toolbar {
   }
 
   rebuild() {
-    this._iconContainer.textContent = "";
+    // Remove all panel icons but keep the + button
+    for (const btn of this._icons.values()) btn.remove();
     this._icons.clear();
     for (const panel of this.sidebar.panelManager.panels) this.addIcon(panel);
     if (this.sidebar.panelManager.activePanel) this.setActive(this.sidebar.panelManager.activePanel);
+  }
+
+  // ── Drag & Drop Reordering ────────────────────────────────────────
+
+  _setupDrag(btn, panel) {
+    let startY = 0;
+    let dragging = false;
+    let placeholder = null;
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return; // left click only
+      startY = e.clientY;
+      dragging = false;
+
+      const onMouseMove = (e2) => {
+        const dy = Math.abs(e2.clientY - startY);
+        if (!dragging && dy > 5) {
+          // Start drag
+          dragging = true;
+          btn.setAttribute("data-dragging", "true");
+
+          // Create placeholder
+          placeholder = this.doc.createXULElement("vbox");
+          placeholder.setAttribute("class", "zen-sidebar-drag-placeholder");
+          placeholder.style.height = `${btn.getBoundingClientRect().height}px`;
+          btn.parentNode.insertBefore(placeholder, btn);
+        }
+
+        if (dragging) {
+          // Position dragged icon via transform
+          const btnRect = btn.getBoundingClientRect();
+          const containerRect = this._iconContainer.getBoundingClientRect();
+          const offsetY = e2.clientY - containerRect.top - btnRect.height / 2;
+          btn.style.position = "relative";
+          btn.style.zIndex = "9999";
+          btn.style.transform = `translateY(${e2.clientY - startY}px)`;
+
+          // Find which icon we're hovering over
+          this._updateDropPosition(btn, e2.clientY, placeholder);
+        }
+      };
+
+      const onMouseUp = () => {
+        this.doc.removeEventListener("mousemove", onMouseMove);
+        this.doc.removeEventListener("mouseup", onMouseUp);
+
+        if (dragging) {
+          btn.removeAttribute("data-dragging");
+          btn.style.position = "";
+          btn.style.zIndex = "";
+          btn.style.transform = "";
+
+          if (placeholder && placeholder.parentNode) {
+            // Insert the btn where the placeholder is
+            placeholder.parentNode.insertBefore(btn, placeholder);
+            placeholder.remove();
+          }
+
+          // Read new order from DOM and sync to panel manager
+          this._syncOrderFromDOM();
+        }
+      };
+
+      this.doc.addEventListener("mousemove", onMouseMove);
+      this.doc.addEventListener("mouseup", onMouseUp);
+    };
+
+    btn.addEventListener("mousedown", onMouseDown);
+  }
+
+  _updateDropPosition(draggedBtn, mouseY, placeholder) {
+    const icons = [...this._icons.values()].filter((b) => b !== draggedBtn);
+
+    for (const icon of icons) {
+      const rect = icon.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+
+      if (mouseY < midY) {
+        // Insert placeholder before this icon
+        if (placeholder.nextSibling !== icon) {
+          this._iconContainer.insertBefore(placeholder, icon);
+        }
+        return;
+      }
+    }
+
+    // Past all icons - insert before the + button
+    if (placeholder.nextSibling !== this._addBtn) {
+      this._iconContainer.insertBefore(placeholder, this._addBtn);
+    }
+  }
+
+  _syncOrderFromDOM() {
+    const newOrder = [];
+    const children = this._iconContainer.children;
+    for (const child of children) {
+      const panelId = child.getAttribute("data-panel-id");
+      if (!panelId) continue;
+      const panel = this.sidebar.panelManager.panels.find((p) => p.id === panelId);
+      if (panel) newOrder.push(panel);
+    }
+    if (newOrder.length === this.sidebar.panelManager.panels.length) {
+      this.sidebar.panelManager.panels = newOrder;
+      this.sidebar.panelManager.save();
+    }
   }
 
   // ── Context Menu ──────────────────────────────────────────────────
@@ -84,15 +192,12 @@ export class Toolbar {
 
     const popup = this._el("menupopup", { id: "zen-sidebar-ctx-menu" });
 
-    // Panel info
     const headerItem = this._el("menuitem", { label: panel.label, disabled: "true", class: "menuitem-iconic" });
     if (panel.icon) headerItem.setAttribute("image", panel.icon);
 
-    // Edit (opens form)
     const editItem = this._el("menuitem", { label: "Edit Panel..." });
     editItem.addEventListener("command", () => this.sidebar.showAddPanelForm(panel));
 
-    // Container
     const containerName = this.sidebar.panelManager.getContainerName(panel.userContextId);
     const containerItem = this._el("menuitem", { label: `Container: ${containerName}` });
     containerItem.addEventListener("command", () => {
@@ -104,7 +209,6 @@ export class Toolbar {
 
     const sep1 = this._el("menuseparator");
 
-    // Toggle nav bar
     const toolbarItem = this._el("menuitem", {
       label: panel.showToolbar !== false ? "Hide Navigation Bar" : "Show Navigation Bar",
     });
@@ -114,11 +218,9 @@ export class Toolbar {
       this.sidebar.updateNavBarVisibility();
     });
 
-    // Reload
     const reloadItem = this._el("menuitem", { label: "Reload" });
     reloadItem.addEventListener("command", () => panel.reload());
 
-    // Go home
     const homeItem = this._el("menuitem", { label: "Go to Home URL" });
     homeItem.addEventListener("command", () => {
       if (panel._browser) panel._browser.setAttribute("src", panel.url);
@@ -126,15 +228,6 @@ export class Toolbar {
 
     const sep2 = this._el("menuseparator");
 
-    // Move
-    const moveUpItem = this._el("menuitem", { label: "Move Up" });
-    moveUpItem.addEventListener("command", () => this.sidebar.panelManager.movePanel(panel, -1));
-    const moveDownItem = this._el("menuitem", { label: "Move Down" });
-    moveDownItem.addEventListener("command", () => this.sidebar.panelManager.movePanel(panel, 1));
-
-    const sep3 = this._el("menuseparator");
-
-    // Remove
     const removeItem = this._el("menuitem", { label: "Remove Panel" });
     removeItem.addEventListener("command", () => this.sidebar.panelManager.removePanel(panel));
 
@@ -143,8 +236,6 @@ export class Toolbar {
       editItem, containerItem,
       sep2,
       toolbarItem, reloadItem, homeItem,
-      sep3,
-      moveUpItem, moveDownItem,
       this._el("menuseparator"),
       removeItem
     );

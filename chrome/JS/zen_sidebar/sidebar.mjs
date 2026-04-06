@@ -621,6 +621,21 @@ const CSS_TEXT = `
   opacity: 1; border-color: var(--zen-primary-color, AccentColor);
 }
 
+/* ── Drag & Drop ───────────────────────────────────────────── */
+.zen-sidebar-panel-icon[data-dragging="true"] {
+  opacity: 0.8;
+  z-index: 9999;
+  cursor: grabbing !important;
+}
+.zen-sidebar-panel-icon { cursor: grab; }
+.zen-sidebar-drag-placeholder {
+  width: 32px; min-height: 32px;
+  border-radius: 8px;
+  background: var(--zen-primary-color, AccentColor);
+  opacity: 0.2;
+  margin: 1px auto;
+}
+
 /* ── Context Menu ──────────────────────────────────────────── */
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
 `;
