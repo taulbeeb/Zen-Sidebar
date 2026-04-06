@@ -4,6 +4,7 @@ import { Toolbar } from "./toolbar.mjs";
 const PREF_MODE = "zen.sidebar.mode";
 const PREF_WIDTH = "zen.sidebar.width";
 const SIDEBAR_DEFAULT_WIDTH = 400;
+const TOOLBAR_WIDTH = 48;
 
 export class ZenSidebar {
   constructor(win) {
@@ -11,7 +12,7 @@ export class ZenSidebar {
     this.doc = win.document;
     this.panelManager = new PanelManager(this);
     this.toolbar = new Toolbar(this);
-    this._panelOpen = false; // is a panel content area visible?
+    this._panelOpen = false;
     this._mode = "overlay";
   }
 
@@ -22,7 +23,6 @@ export class ZenSidebar {
     this._injectInlineCSS();
     this._registerKeybinding();
     this._restorePanels();
-    // Toolbar is always visible after init
     this._sidebarBox.removeAttribute("hidden");
     console.log("[ZenSidebar] Ready.");
   }
@@ -47,31 +47,16 @@ export class ZenSidebar {
     if (!container) container = this.doc.documentElement;
     this._container = container;
 
-    // Outer wrapper - always visible (holds toolbar strip + panel area)
-    this._sidebarBox = this._el("vbox", {
-      id: "zen-sidebar-box",
-      hidden: "true",
-    });
+    this._sidebarBox = this._el("vbox", { id: "zen-sidebar-box", hidden: "true" });
 
-    // Splitter (only shown when panel content is open)
-    this._splitter = this._el("splitter", {
-      id: "zen-sidebar-splitter",
-      hidden: "true",
-    });
+    this._splitter = this._el("splitter", { id: "zen-sidebar-splitter", hidden: "true" });
     this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
 
-    // ── Panel area (nav + content) - collapsible ──
-    this._panelArea = this._el("vbox", {
-      id: "zen-sidebar-panel-area",
-      hidden: "true",
-    });
+    // Panel area (nav + content) - collapsible
+    this._panelArea = this._el("vbox", { id: "zen-sidebar-panel-area", hidden: "true" });
 
     // Nav bar
-    this._navBar = this._el("hbox", {
-      id: "zen-sidebar-navbar",
-      align: "center",
-    });
-
+    this._navBar = this._el("hbox", { id: "zen-sidebar-navbar", align: "center" });
     const backBtn = this._navBtn("zen-sb-back", "Back", "chrome://global/skin/icons/arrow-left.svg", () => this._navAction("back"));
     const fwdBtn = this._navBtn("zen-sb-forward", "Forward", "chrome://global/skin/icons/arrow-right.svg", () => this._navAction("forward"));
     const reloadBtn = this._navBtn("zen-sb-reload", "Reload", "chrome://global/skin/icons/reload.svg", () => this._navAction("reload"));
@@ -81,23 +66,14 @@ export class ZenSidebar {
     modeBtn.setAttribute("data-mode", this._mode);
     const closeBtn = this._navBtn("zen-sb-close", "Close panel", "chrome://global/skin/icons/close.svg", () => this.collapsePanel());
     closeBtn.classList.add("zen-sb-close-btn");
-
     this._navBar.append(backBtn, fwdBtn, reloadBtn, homeBtn, spacer, modeBtn, closeBtn);
 
-    // Panel content container (browser elements go here)
-    this._panelContainer = this._el("vbox", {
-      id: "zen-sidebar-panel-container",
-      flex: "1",
-    });
-
+    this._panelContainer = this._el("vbox", { id: "zen-sidebar-panel-container", flex: "1" });
     this._panelArea.append(this._navBar, this._panelContainer);
 
-    // Vertical icon toolbar (always visible)
     const toolbarEl = this.toolbar.build();
 
-    // Layout: [splitter] [panel-area | toolbar-strip]
     this._sidebarBox.append(this._panelArea, toolbarEl);
-    this._sidebarBox.style.width = "";  // width set dynamically
     container.append(this._splitter, this._sidebarBox);
     this._applyMode();
   }
@@ -122,37 +98,26 @@ export class ZenSidebar {
     }
   }
 
-  // ── Navbar visibility per panel ───────────────────────────────────
-
   updateNavBarVisibility() {
     const panel = this.panelManager.activePanel;
     if (!panel) return;
-    if (panel.showToolbar === false) {
-      this._navBar.setAttribute("collapsed", "true");
-    } else {
-      this._navBar.removeAttribute("collapsed");
-    }
+    this._navBar.setAttribute("collapsed", panel.showToolbar === false ? "true" : "false");
   }
 
-  // ── Panel Expand / Collapse (click icon to toggle) ────────────────
+  // ── Panel Expand / Collapse ───────────────────────────────────────
 
-  get panelOpen() {
-    return this._panelOpen;
-  }
+  get panelOpen() { return this._panelOpen; }
 
   expandPanel(panel) {
     this._panelOpen = true;
     this._panelArea.removeAttribute("hidden");
     this._splitter.removeAttribute("hidden");
 
-    // Set width from panel or global default
-    const width = panel?.width || this._getWidth();
-    this._sidebarBox.style.width = `${width + 42}px`; // +42 for toolbar strip
-    this._panelArea.style.width = `${width}px`;
+    const width = (panel?.width || this._getWidth()) + TOOLBAR_WIDTH;
+    this._sidebarBox.style.width = `${width}px`;
 
     this._applyMode();
     this.updateNavBarVisibility();
-
     if (panel) panel.load();
   }
 
@@ -160,199 +125,80 @@ export class ZenSidebar {
     this._panelOpen = false;
     this._panelArea.setAttribute("hidden", "true");
     this._splitter.setAttribute("hidden", "true");
-    this._sidebarBox.style.width = "";  // collapse to toolbar width only
+    this._sidebarBox.style.width = "";
     this._clearResize();
-
-    // Deselect active icon
     this.toolbar.clearActive();
   }
 
-  // ── Switch or toggle a panel ──────────────────────────────────────
-
   switchToPanel(panel) {
     const active = this.panelManager.activePanel;
-
-    // If clicking the already-active panel, toggle it
     if (active === panel && this._panelOpen) {
       this.collapsePanel();
       return;
     }
-
     this.panelManager.switchTo(panel);
     this.expandPanel(panel);
   }
 
-  // ── Show "Add Panel" form inside the panel area ───────────────────
+  // ── Add/Edit Panel (using Services.prompt - reliable) ─────────────
 
   showAddPanelForm(editPanel = null) {
-    // Clear panel container and show a form
-    this._panelArea.removeAttribute("hidden");
-    this._splitter.removeAttribute("hidden");
-    this._navBar.setAttribute("collapsed", "true");
-    this._sidebarBox.style.width = `${this._getWidth() + 42}px`;
-    this._panelArea.style.width = `${this._getWidth()}px`;
-
-    // Hide all browsers
-    for (const p of this.panelManager.panels) p.hide();
-
-    // Create HTML form
-    const existing = this.doc.getElementById("zen-sb-add-form");
-    if (existing) existing.remove();
-
-    const frame = this.doc.createXULElement("browser");
-    frame.setAttribute("id", "zen-sb-add-form");
-    frame.setAttribute("type", "content");
-    frame.setAttribute("disableglobalhistory", "true");
-    frame.setAttribute("flex", "1");
-    frame.style.border = "none";
-
-    this._panelContainer.appendChild(frame);
-
     const isEdit = !!editPanel;
+
+    // 1. URL
+    const url = { value: isEdit ? editPanel.url : "https://" };
+    const urlOk = Services.prompt.prompt(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      "Web Page URL:", url, null, { value: false }
+    );
+    if (!urlOk || !url.value) return;
+
+    let finalURL = url.value.trim();
+    if (!/^https?:\/\//i.test(finalURL)) finalURL = "https://" + finalURL;
+
+    // 2. Width
+    const widthStr = { value: String(isEdit ? (editPanel.width || this._getWidth()) : this._getWidth()) };
+    const widthOk = Services.prompt.prompt(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      "Panel Width (200-800):", widthStr, null, { value: false }
+    );
+    if (!widthOk) return;
+    const width = Math.max(200, Math.min(800, parseInt(widthStr.value, 10) || this._getWidth()));
+
+    // 3. Container
     const containers = this.panelManager.getContainers();
-    const containerOptions = containers.map(
-      (c) => `<option value="${c.userContextId}" ${editPanel && editPanel.userContextId === c.userContextId ? "selected" : ""}>${this._escHtml(c.name)}</option>`
-    ).join("");
+    let userContextId = 0;
+    if (containers.length > 0) {
+      const names = ["No Container", ...containers.map((c) => c.name)];
+      const ids = [0, ...containers.map((c) => c.userContextId)];
+      const selected = { value: isEdit ? Math.max(0, ids.indexOf(editPanel.userContextId || 0)) : 0 };
+      const cOk = Services.prompt.select(
+        this.win, "Container",
+        "Open this panel in a container:", names, selected
+      );
+      if (!cOk) return;
+      userContextId = ids[selected.value];
+    }
 
-    const html = `<!DOCTYPE html>
-<html>
-<head><style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: system-ui, -apple-system, sans-serif;
-    background: #2b2a33; color: #fbfbfe;
-    padding: 24px 20px;
-  }
-  h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
-  hr { border: none; border-top: 1px solid rgba(128,128,128,0.2); margin: 16px 0; }
-  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #ccc; }
-  input, select {
-    width: 100%; padding: 10px 12px; font-size: 14px;
-    background: rgba(255,255,255,0.07); color: #fbfbfe;
-    border: 1px solid rgba(128,128,128,0.25); border-radius: 8px;
-    outline: none; margin-bottom: 16px;
-  }
-  input:focus, select:focus { border-color: #7b68ee; }
-  select option { background: #2b2a33; color: #fbfbfe; }
-  .checkbox-row {
-    display: flex; align-items: center; gap: 10px;
-    margin-bottom: 16px; cursor: pointer;
-  }
-  .checkbox-row input[type="checkbox"] {
-    width: 18px; height: 18px; margin: 0; cursor: pointer;
-    accent-color: #7b68ee;
-  }
-  .checkbox-row span { font-size: 14px; }
-  .btn-row { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-  button {
-    padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 600;
-    cursor: pointer; border: none;
-  }
-  .btn-primary { background: #7b68ee; color: white; }
-  .btn-primary:hover { background: #6a56e0; }
-  .btn-cancel { background: rgba(255,255,255,0.1); color: #ccc; }
-  .btn-cancel:hover { background: rgba(255,255,255,0.15); }
-</style></head>
-<body>
-  <h2>${isEdit ? "Edit Panel" : "Add Panel"}</h2>
-  <hr>
-  <label>Web Page URL</label>
-  <input type="url" id="url" placeholder="https://example.com" value="${isEdit ? this._escHtml(editPanel.url) : "https://"}">
-  <label>Panel Width</label>
-  <input type="number" id="width" min="200" max="800" value="${isEdit ? (editPanel.width || this._getWidth()) : this._getWidth()}">
-  <label>Container</label>
-  <select id="container">
-    <option value="0" ${!isEdit || !editPanel.userContextId ? "selected" : ""}>No Container</option>
-    ${containerOptions}
-  </select>
-  <label class="checkbox-row">
-    <input type="checkbox" id="mobile" ${(!isEdit || editPanel.mobileUA !== false) ? "checked" : ""}>
-    <span>Use Mobile User Agent</span>
-  </label>
-  <hr>
-  <div class="btn-row">
-    <button class="btn-primary" id="submit">${isEdit ? "Save" : "Add"}</button>
-    <button class="btn-cancel" id="cancel">Cancel</button>
-  </div>
-  <script>
-    document.getElementById("submit").addEventListener("click", () => {
-      const data = {
-        url: document.getElementById("url").value,
-        width: parseInt(document.getElementById("width").value) || 400,
-        userContextId: parseInt(document.getElementById("container").value) || 0,
-        mobileUA: document.getElementById("mobile").checked,
-      };
-      // Communicate back to chrome via a custom event on the title
-      document.title = "ZEN_SIDEBAR_SUBMIT:" + JSON.stringify(data);
-    });
-    document.getElementById("cancel").addEventListener("click", () => {
-      document.title = "ZEN_SIDEBAR_CANCEL";
-    });
-  </script>
-</body>
-</html>`;
+    // 4. Mobile UA
+    const mobileUA = { value: isEdit ? editPanel.mobileUA !== false : true };
+    Services.prompt.confirmCheck(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      `URL: ${finalURL}\nWidth: ${width}`,
+      "Use Mobile User Agent", mobileUA
+    );
 
-    // Load the form HTML
-    const dataURL = "data:text/html;charset=utf-8," + encodeURIComponent(html);
-    frame.setAttribute("src", dataURL);
-
-    // Watch for title changes as IPC mechanism
-    const observer = new this.win.MutationObserver(() => {
-      const title = frame.contentTitle || "";
-      if (title.startsWith("ZEN_SIDEBAR_SUBMIT:")) {
-        const json = title.substring("ZEN_SIDEBAR_SUBMIT:".length);
-        try {
-          const data = JSON.parse(json);
-          this._handleFormSubmit(data, editPanel);
-        } catch (e) {
-          console.error("[ZenSidebar] Form parse error", e);
-        }
-        cleanup();
-      } else if (title === "ZEN_SIDEBAR_CANCEL") {
-        cleanup();
-      }
-    });
-
-    const cleanup = () => {
-      observer.disconnect();
-      frame.remove();
-      // Restore panel view
-      if (this.panelManager.activePanel && this._panelOpen) {
-        this.panelManager.activePanel.show();
-        this.updateNavBarVisibility();
-      } else {
-        this.collapsePanel();
-      }
-    };
-
-    // Observe the browser's content title attribute
-    const startObserving = () => {
-      observer.observe(frame, { attributes: true, attributeFilter: ["contenttitle"] });
-    };
-    // Also try to observe after a delay for content load
-    frame.addEventListener("load", startObserving, { once: true });
-    this.win.setTimeout(startObserving, 500);
-  }
-
-  _handleFormSubmit(data, editPanel) {
-    let url = (data.url || "").trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-
-    if (editPanel) {
-      editPanel.width = data.width || this._getWidth();
-      editPanel.mobileUA = data.mobileUA !== false;
-      this.panelManager.editPanel(editPanel, url, null, null, data.userContextId);
+    // Apply
+    if (isEdit) {
+      editPanel.width = width;
+      editPanel.mobileUA = mobileUA.value;
+      this.panelManager.editPanel(editPanel, finalURL, null, null, userContextId);
     } else {
-      this.panelManager.addPanel(url, null, null, data.userContextId || 0, {
-        width: data.width || this._getWidth(),
-        mobileUA: data.mobileUA !== false,
+      this.panelManager.addPanel(finalURL, null, null, userContextId, {
+        width,
+        mobileUA: mobileUA.value,
       });
     }
-  }
-
-  _escHtml(str) {
-    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   // ── Mode Toggle ───────────────────────────────────────────────────
@@ -382,7 +228,7 @@ export class ZenSidebar {
 
   _pushContent() {
     const appcontent = this.doc.getElementById("appcontent");
-    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + 42;
+    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + TOOLBAR_WIDTH;
     if (appcontent) appcontent.style.marginRight = `${w}px`;
   }
 
@@ -396,16 +242,16 @@ export class ZenSidebar {
   _onSplitterDrag() {
     const onMouseMove = (e) => {
       const rect = this._container.getBoundingClientRect();
-      const totalW = Math.max(242, Math.min(842, rect.right - e.clientX));
+      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, rect.right - e.clientX));
       this._sidebarBox.style.width = `${totalW}px`;
-      this._panelArea.style.width = `${totalW - 42}px`;
       if (this._mode === "resize") this._pushContent();
     };
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
-      const panelW = parseInt(this._panelArea.style.width, 10);
-      if (panelW) Services.prefs.setIntPref(PREF_WIDTH, panelW);
+      const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
+      const panelW = totalW - TOOLBAR_WIDTH;
+      if (panelW > 0) Services.prefs.setIntPref(PREF_WIDTH, panelW);
     };
     this.doc.addEventListener("mousemove", onMouseMove);
     this.doc.addEventListener("mouseup", onMouseUp);
@@ -417,7 +263,6 @@ export class ZenSidebar {
     this._keyHandler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
-        // Toggle: if panel open, collapse. If collapsed, expand last active.
         if (this._panelOpen) {
           this.collapsePanel();
         } else {
@@ -460,8 +305,6 @@ export class ZenSidebar {
     return el;
   }
 
-  // ── Inline CSS ────────────────────────────────────────────────────
-
   _injectInlineCSS() {
     const style = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "style");
     style.textContent = CSS_TEXT;
@@ -471,21 +314,16 @@ export class ZenSidebar {
 }
 
 const CSS_TEXT = `
-/* ── Sidebar Outer Box (always visible) ────────────────────── */
+/* ── Sidebar Outer Box ─────────────────────────────────────── */
 #zen-sidebar-box {
   display: flex; flex-direction: row;
   background: var(--toolbar-bgcolor, #1c1b22);
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
   font-family: system-ui, -apple-system, sans-serif;
+  overflow: visible;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
-
-/* When panel is closed, just show the toolbar strip */
-#zen-sidebar-box:not(:has(#zen-sidebar-panel-area:not([hidden]))) {
-  border-left: none;
-}
-
-/* Overlay vs resize only applies when panel content is open */
+#zen-sidebar-box:not(:has(#zen-sidebar-panel-area:not([hidden]))) { border-left: none; }
 #zen-sidebar-box[data-mode="overlay"]:has(#zen-sidebar-panel-area:not([hidden])) {
   position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
   box-shadow: -2px 0 12px rgba(0,0,0,0.25);
@@ -504,10 +342,10 @@ const CSS_TEXT = `
 }
 #zen-sidebar-splitter[hidden="true"] { display: none; }
 
-/* ── Panel Area (collapsible: nav + content) ───────────────── */
+/* ── Panel Area (collapsible) ──────────────────────────────── */
 #zen-sidebar-panel-area {
   display: flex; flex-direction: column;
-  flex: 1; min-width: 200px;
+  flex: 1; min-width: 0;
   overflow: hidden;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
@@ -531,15 +369,12 @@ const CSS_TEXT = `
 }
 .zen-sb-nav-btn .toolbarbutton-icon {
   width: 14px; height: 14px;
-  -moz-context-properties: fill;
-  fill: var(--toolbar-color, #fbfbfe);
+  -moz-context-properties: fill; fill: var(--toolbar-color, #fbfbfe);
 }
 .zen-sb-nav-btn:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08)); opacity: 1;
 }
 .zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
-
-/* Mode toggle icon */
 #zen-sb-mode .toolbarbutton-icon { display: none; }
 #zen-sb-mode::after {
   content: ""; width: 14px; height: 14px;
@@ -557,34 +392,37 @@ const CSS_TEXT = `
   flex: 1; border: none; background: var(--toolbar-bgcolor, #1c1b22);
 }
 
-/* ── Icon Toolbar (always visible vertical strip) ──────────── */
+/* ── Icon Toolbar (always visible, 48px wide) ──────────────── */
 #zen-sidebar-toolbar {
   display: flex; flex-direction: column;
-  width: 42px; min-width: 42px; flex-shrink: 0;
+  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; flex-shrink: 0;
   background: var(--toolbar-bgcolor, #1c1b22);
-  padding: 6px 0;
+  padding: 8px 0;
+  box-sizing: border-box;
 }
 #zen-sidebar-toolbar-icons {
   display: flex; flex-direction: column;
-  align-items: center; gap: 2px;
+  align-items: center; gap: 4px;
   overflow-y: auto; overflow-x: hidden;
-  padding: 2px 0; flex: 1;
-}
-#zen-sidebar-toolbar-bottom {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 4px 0;
-  border-top: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
+  padding: 0; flex: 1;
 }
 
 /* ── Panel Icons ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon {
-  appearance: none; width: 32px; height: 32px;
+  appearance: none;
+  width: 34px; height: 34px; min-height: 34px;
   border-radius: 8px; background: transparent;
-  border: 2px solid transparent; cursor: pointer;
-  padding: 3px; position: relative;
+  border: 2px solid transparent;
+  cursor: grab;
+  padding: 0;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
   transition: background 0.12s, border-color 0.12s;
+  box-sizing: border-box;
 }
-.zen-sidebar-panel-icon .toolbarbutton-icon { width: 18px; height: 18px; }
+.zen-sidebar-panel-icon .toolbarbutton-icon {
+  width: 20px; height: 20px;
+}
 .zen-sidebar-panel-icon:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08));
 }
@@ -595,9 +433,9 @@ const CSS_TEXT = `
 
 /* Container color dot */
 .zen-sidebar-panel-icon[data-container-color]::after {
-  content: ""; position: absolute; bottom: 1px; right: 1px;
-  width: 7px; height: 7px; border-radius: 50%;
-  border: 1px solid var(--toolbar-bgcolor, #1c1b22);
+  content: ""; position: absolute; bottom: 0px; right: 0px;
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid var(--toolbar-bgcolor, #1c1b22);
 }
 .zen-sidebar-panel-icon[data-container-color="blue"]::after { background: #37adff; }
 .zen-sidebar-panel-icon[data-container-color="turquoise"]::after { background: #00c79a; }
@@ -610,30 +448,30 @@ const CSS_TEXT = `
 
 /* ── Add Button ────────────────────────────────────────────── */
 #zen-sidebar-add-btn {
-  appearance: none; width: 32px; height: 32px;
+  appearance: none;
+  width: 34px; height: 34px; min-height: 34px;
   border-radius: 8px; background: transparent;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
-  opacity: 0.6; transition: opacity 0.15s, border-color 0.15s;
+  opacity: 0.5; transition: opacity 0.15s, border-color 0.15s;
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box;
 }
+#zen-sidebar-add-btn .toolbarbutton-text { margin: 0; padding: 0; }
 #zen-sidebar-add-btn:hover {
   opacity: 1; border-color: var(--zen-primary-color, AccentColor);
 }
 
 /* ── Drag & Drop ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon[data-dragging="true"] {
-  opacity: 0.8;
-  z-index: 9999;
-  cursor: grabbing !important;
+  opacity: 0.7; cursor: grabbing !important;
 }
-.zen-sidebar-panel-icon { cursor: grab; }
 .zen-sidebar-drag-placeholder {
-  width: 32px; min-height: 32px;
+  width: 34px; min-height: 34px;
   border-radius: 8px;
   background: var(--zen-primary-color, AccentColor);
   opacity: 0.2;
-  margin: 1px auto;
 }
 
 /* ── Context Menu ──────────────────────────────────────────── */
