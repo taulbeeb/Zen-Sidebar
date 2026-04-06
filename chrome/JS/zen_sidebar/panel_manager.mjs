@@ -100,6 +100,7 @@ export class PanelManager {
       label: p.label,
       icon: p.icon,
       userContextId: p.userContextId || 0,
+      showToolbar: p.showToolbar !== false,
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     const json = JSON.stringify({ panels: data, activeId });
@@ -131,6 +132,7 @@ export class PanelManager {
         label: pData.label,
         icon: pData.icon,
         userContextId: pData.userContextId || 0,
+        showToolbar: pData.showToolbar !== false,
       });
       this.panels.push(panel);
       panel.createBrowser();

@@ -14,70 +14,48 @@ export class ZenSidebar {
     this.panelManager = new PanelManager(this);
     this.toolbar = new Toolbar(this);
     this._visible = false;
-    this._mode = "overlay"; // "overlay" or "resize"
+    this._mode = "overlay";
   }
 
   init() {
     console.log("[ZenSidebar] Initializing...");
     this._loadPrefs();
     this._buildDOM();
-    this._loadCSS();
+    this._injectInlineCSS();
     this._addToolbarButton();
     this._registerKeybinding();
     this._restorePanels();
-    console.log("[ZenSidebar] Initialization complete. Press Cmd+Shift+E or click the toolbar button to toggle.");
+    console.log("[ZenSidebar] Ready.");
   }
 
   destroy() {
     this._removeKeybinding();
     this._savePrefs();
-    if (this._sidebarBox) {
-      this._sidebarBox.remove();
-    }
-    if (this._splitter) {
-      this._splitter.remove();
-    }
-    if (this._styleEl) {
-      this._styleEl.remove();
-    }
-    if (this._toolbarBtn) {
-      this._toolbarBtn.remove();
+    for (const el of [
+      this._sidebarBox,
+      this._splitter,
+      this._styleEl,
+      this._inlineStyleEl,
+      this._toolbarBtn,
+    ]) {
+      if (el) el.remove();
     }
   }
 
   // ── DOM Construction ──────────────────────────────────────────────
 
   _buildDOM() {
-    // Try multiple possible container element IDs for Zen/Firefox
     const containerCandidates = [
       "browser",
       "tabbrowser-tabbox",
       "content-deck",
-      "navigator-toolbox",
     ];
-
     let container = null;
     for (const id of containerCandidates) {
       container = this.doc.getElementById(id);
-      if (container) {
-        console.log(`[ZenSidebar] Found container element: #${id}`);
-        break;
-      }
+      if (container) break;
     }
-
-    if (!container) {
-      // Last resort: try to find the main browser area by tag/class
-      container =
-        this.doc.querySelector("#browser") ||
-        this.doc.querySelector("hbox#browser") ||
-        this.doc.querySelector("[id*='browser']") ||
-        this.doc.documentElement;
-      console.warn(
-        "[ZenSidebar] Could not find standard container, using fallback:",
-        container?.id || container?.tagName
-      );
-    }
-
+    if (!container) container = this.doc.documentElement;
     this._container = container;
 
     // Main sidebar container
@@ -86,250 +64,119 @@ export class ZenSidebar {
       hidden: "true",
     });
 
-    // Splitter for manual resize
+    // Splitter
     this._splitter = this._el("splitter", {
       id: "zen-sidebar-splitter",
       hidden: "true",
-      resizebefore: "none",
-      resizeafter: "closest",
     });
     this._splitter.addEventListener("mousedown", () => this._onSplitterDrag());
 
-    // Sidebar header
-    const header = this._el("hbox", {
-      id: "zen-sidebar-header",
+    // ── Navigation toolbar (replaces old header) ──
+    this._navBar = this._el("hbox", {
+      id: "zen-sidebar-navbar",
       align: "center",
     });
 
-    const titleLabel = this._el("label", {
-      id: "zen-sidebar-title",
-      value: "Web Panel",
-      flex: "1",
-      crop: "end",
-    });
+    const backBtn = this._navBtn("zen-sb-back", "Back", "chrome://global/skin/icons/arrow-left.svg", () => this._navAction("back"));
+    const fwdBtn = this._navBtn("zen-sb-forward", "Forward", "chrome://global/skin/icons/arrow-right.svg", () => this._navAction("forward"));
+    const reloadBtn = this._navBtn("zen-sb-reload", "Reload", "chrome://global/skin/icons/reload.svg", () => this._navAction("reload"));
+    const homeBtn = this._navBtn("zen-sb-home", "Go to panel URL", "chrome://global/skin/icons/home.svg", () => this._navAction("home"));
 
-    const headerButtons = this._el("hbox", {
-      id: "zen-sidebar-header-buttons",
-    });
+    // Spacer
+    const spacer = this._el("spacer", { flex: "1" });
 
-    const modeToggleBtn = this._el("toolbarbutton", {
-      id: "zen-sidebar-mode-toggle",
-      tooltiptext: "Toggle overlay/resize mode",
-      class: "zen-sidebar-header-btn",
-    });
-    modeToggleBtn.addEventListener("command", () => this.toggleMode());
+    // Mode toggle
+    const modeBtn = this._navBtn("zen-sb-mode", "Toggle overlay/resize", null, () => this.toggleMode());
+    modeBtn.setAttribute("data-mode", this._mode);
 
-    const closeBtn = this._el("toolbarbutton", {
-      id: "zen-sidebar-close",
-      tooltiptext: "Close sidebar",
-      class: "zen-sidebar-header-btn",
-    });
-    closeBtn.addEventListener("command", () => this.toggle());
+    // Close
+    const closeBtn = this._navBtn("zen-sb-close", "Close sidebar", "chrome://global/skin/icons/close.svg", () => this.toggle());
+    closeBtn.classList.add("zen-sb-close-btn");
 
-    headerButtons.append(modeToggleBtn, closeBtn);
-    header.append(titleLabel, headerButtons);
+    this._navBar.append(backBtn, fwdBtn, reloadBtn, homeBtn, spacer, modeBtn, closeBtn);
 
-    // Panel container (holds the <browser> elements for web panels)
+    // Panel container
     this._panelContainer = this._el("vbox", {
       id: "zen-sidebar-panel-container",
       flex: "1",
     });
 
-    // Build toolbar (vertical icon strip)
+    // Vertical icon toolbar
     const toolbarEl = this.toolbar.build();
 
-    // Assemble sidebar
-    this._sidebarBox.append(header, this._panelContainer, toolbarEl);
-
-    // Set initial width
-    const width = this._getWidth();
-    this._sidebarBox.style.width = `${width}px`;
-
-    // Insert at the right end of the container
+    // Assemble
+    this._sidebarBox.append(this._navBar, this._panelContainer, toolbarEl);
+    this._sidebarBox.style.width = `${this._getWidth()}px`;
     container.append(this._splitter, this._sidebarBox);
-
-    // Update mode class
     this._applyMode();
-
-    console.log("[ZenSidebar] DOM built and appended to", container.id || container.tagName);
   }
 
-  _loadCSS() {
-    // Try multiple chrome URL patterns for different loaders
-    const cssPaths = [
-      "chrome://userscripts/content/zen_sidebar/sidebar.css",
-      "chrome://userchrome/content/JS/zen_sidebar/sidebar.css",
-      "chrome://userchromejs/content/zen_sidebar/sidebar.css",
-    ];
+  _navBtn(id, tooltip, iconUrl, handler) {
+    const btn = this._el("toolbarbutton", {
+      id,
+      tooltiptext: tooltip,
+      class: "zen-sb-nav-btn",
+    });
+    if (iconUrl) {
+      btn.setAttribute("image", iconUrl);
+    }
+    btn.addEventListener("command", handler);
+    return btn;
+  }
 
-    // Try loading via processing instruction
-    let loaded = false;
-    for (const cssURL of cssPaths) {
-      try {
-        const pi = this.doc.createProcessingInstruction(
-          "xml-stylesheet",
-          `href="${cssURL}" type="text/css"`
-        );
-        this.doc.insertBefore(pi, this.doc.documentElement);
-        this._styleEl = pi;
-        console.log("[ZenSidebar] CSS loaded via PI:", cssURL);
-        loaded = true;
+  // ── Navigation Actions ────────────────────────────────────────────
+
+  _navAction(action) {
+    const panel = this.panelManager.activePanel;
+    if (!panel || !panel._browser) return;
+    const browser = panel._browser;
+    switch (action) {
+      case "back":
+        browser.goBack();
         break;
-      } catch (e) {
-        console.warn("[ZenSidebar] CSS PI failed for", cssURL, e);
-      }
+      case "forward":
+        browser.goForward();
+        break;
+      case "reload":
+        browser.reload();
+        break;
+      case "home":
+        browser.setAttribute("src", panel.url);
+        break;
     }
-
-    // Fallback: inject styles inline
-    if (!loaded) {
-      console.log("[ZenSidebar] Falling back to inline CSS injection");
-    }
-
-    // Always inject critical inline styles as a safety net
-    this._injectInlineCSS();
   }
 
-  _injectInlineCSS() {
-    const style = this.doc.createElementNS(
-      "http://www.w3.org/1999/xhtml",
-      "style"
-    );
-    style.setAttribute("type", "text/css");
-    style.textContent = `
-      #zen-sidebar-box {
-        display: grid;
-        grid-template-columns: 1fr 48px;
-        grid-template-rows: auto 1fr;
-        background-color: var(--toolbar-bgcolor, #1c1b22);
-        border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.3));
-        min-width: 250px;
-        max-width: 50vw;
-      }
-      #zen-sidebar-box[data-mode="overlay"] {
-        position: fixed;
-        right: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 10000;
-        box-shadow: -4px 0 16px rgba(0,0,0,0.3);
-      }
-      #zen-sidebar-box[data-mode="resize"] {
-        position: relative;
-        z-index: 1;
-      }
-      #zen-sidebar-box[hidden="true"] {
-        display: none !important;
-      }
-      #zen-sidebar-header {
-        grid-column: 1; grid-row: 1;
-        display: flex; align-items: center;
-        padding: 6px 10px;
-        background-color: var(--toolbar-bgcolor, #2b2a33);
-        border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.3));
-        min-height: 36px;
-      }
-      #zen-sidebar-title {
-        color: var(--toolbar-color, #fbfbfe);
-        font-size: 13px; font-weight: 600;
-        margin-inline-start: 8px;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      }
-      #zen-sidebar-header-buttons { display: flex; gap: 2px; margin-inline-start: auto; }
-      .zen-sidebar-header-btn {
-        appearance: none; width: 28px; height: 28px;
-        border-radius: 4px; background: transparent;
-        border: none; color: var(--toolbar-color, #fbfbfe); cursor: pointer;
-      }
-      .zen-sidebar-header-btn:hover { background-color: rgba(255,255,255,0.08); }
-      #zen-sidebar-close:hover { background-color: rgba(255,80,80,0.3); }
-      #zen-sidebar-panel-container {
-        grid-column: 1; grid-row: 2;
-        display: flex; flex-direction: column;
-        overflow: hidden; background-color: var(--toolbar-bgcolor, #1c1b22);
-      }
-      .zen-sidebar-web-panel-browser { flex: 1; border: none; background-color: white; }
-      #zen-sidebar-toolbar {
-        grid-column: 2; grid-row: 1 / -1;
-        display: flex; flex-direction: column;
-        width: 48px; min-width: 48px;
-        background-color: var(--toolbar-bgcolor, #1c1b22);
-        border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.3));
-        padding: 6px 0;
-      }
-      #zen-sidebar-toolbar-icons {
-        display: flex; flex-direction: column;
-        align-items: center; gap: 4px;
-        overflow-y: auto; padding: 4px 0; flex: 1;
-      }
-      #zen-sidebar-toolbar-bottom {
-        display: flex; flex-direction: column; align-items: center;
-        margin-top: auto; padding: 4px 0;
-        border-top: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.3));
-      }
-      .zen-sidebar-panel-icon {
-        appearance: none; width: 36px; height: 36px;
-        border-radius: 8px; background: transparent;
-        border: 2px solid transparent; cursor: pointer;
-        padding: 4px; position: relative;
-      }
-      .zen-sidebar-panel-icon .toolbarbutton-icon { width: 20px; height: 20px; }
-      .zen-sidebar-panel-icon:hover { background-color: rgba(255,255,255,0.08); }
-      .zen-sidebar-panel-icon[data-active="true"] {
-        background-color: rgba(255,255,255,0.15);
-        border-color: var(--zen-primary-color, #7b68ee);
-      }
-      #zen-sidebar-add-btn {
-        appearance: none; width: 36px; height: 36px;
-        border-radius: 8px; background: transparent;
-        border: 2px dashed rgba(128,128,128,0.4); cursor: pointer;
-        color: var(--toolbar-color, #fbfbfe); font-size: 20px; font-weight: 300;
-      }
-      #zen-sidebar-add-btn:hover {
-        background-color: rgba(255,255,255,0.08);
-        border-color: var(--zen-primary-color, #7b68ee);
-      }
-      #zen-sidebar-splitter {
-        width: 4px; min-width: 4px;
-        background-color: transparent; border: none; cursor: ew-resize;
-      }
-      #zen-sidebar-splitter:hover { background-color: var(--zen-primary-color, #7b68ee); }
-      #zen-sidebar-toggle-toolbar-btn {
-        list-style-image: url("chrome://global/skin/icons/settings.svg");
-      }
-    `;
-    this.doc.documentElement.appendChild(style);
-    this._inlineStyleEl = style;
+  // ── Navbar visibility per panel ───────────────────────────────────
+
+  updateNavBarVisibility() {
+    const panel = this.panelManager.activePanel;
+    if (!panel) return;
+    if (panel.showToolbar === false) {
+      this._navBar.setAttribute("collapsed", "true");
+    } else {
+      this._navBar.removeAttribute("collapsed");
+    }
   }
 
-  // ── Toolbar Button (visible in the browser nav bar) ───────────────
+  // ── Toolbar Button (nav bar) ──────────────────────────────────────
 
   _addToolbarButton() {
-    // Find a toolbar to add the button to
     const navBar =
       this.doc.getElementById("nav-bar") ||
-      this.doc.getElementById("toolbar-menubar") ||
       this.doc.querySelector("toolbar");
+    if (!navBar) return;
 
-    if (!navBar) {
-      console.warn("[ZenSidebar] No toolbar found for toggle button");
-      return;
-    }
-
-    const customizableArea =
-      navBar.querySelector("#nav-bar-customization-target") ||
-      navBar;
+    const target =
+      navBar.querySelector("#nav-bar-customization-target") || navBar;
 
     this._toolbarBtn = this._el("toolbarbutton", {
       id: "zen-sidebar-toggle-toolbar-btn",
       class: "toolbarbutton-1 chromeclass-toolbar-additional",
-      label: "Web Panels",
-      tooltiptext: "Toggle Web Panels Sidebar (Ctrl+Shift+E)",
+      tooltiptext: "Web Panels (Ctrl+Shift+E)",
       removable: "true",
     });
     this._toolbarBtn.addEventListener("command", () => this.toggle());
-
-    customizableArea.appendChild(this._toolbarBtn);
-    console.log("[ZenSidebar] Toolbar button added to", navBar.id);
+    target.appendChild(this._toolbarBtn);
   }
 
   // ── Visibility ────────────────────────────────────────────────────
@@ -343,21 +190,16 @@ export class ZenSidebar {
   }
 
   show() {
-    if (!this._sidebarBox) {
-      console.error("[ZenSidebar] Cannot show - sidebar DOM not built");
-      return;
-    }
+    if (!this._sidebarBox) return;
     this._visible = true;
     this._sidebarBox.removeAttribute("hidden");
     this._splitter.removeAttribute("hidden");
-    this._sidebarBox.classList.add("zen-sidebar-open");
     this._applyMode();
+    this.updateNavBarVisibility();
 
-    // Load active panel if needed
     const active = this.panelManager.activePanel;
     if (active) {
       active.load();
-      this._updateTitle(active.label);
     }
   }
 
@@ -365,9 +207,6 @@ export class ZenSidebar {
     this._visible = false;
     this._sidebarBox.setAttribute("hidden", "true");
     this._splitter.setAttribute("hidden", "true");
-    this._sidebarBox.classList.remove("zen-sidebar-open");
-
-    // Undo resize mode push
     this._clearResize();
   }
 
@@ -386,41 +225,30 @@ export class ZenSidebar {
   _applyMode() {
     const box = this._sidebarBox;
     if (!box) return;
-
     box.setAttribute("data-mode", this._mode);
 
-    const modeBtn = this.doc.getElementById("zen-sidebar-mode-toggle");
+    const modeBtn = this.doc.getElementById("zen-sb-mode");
     if (modeBtn) {
+      modeBtn.setAttribute("data-mode", this._mode);
       modeBtn.setAttribute(
         "tooltiptext",
-        this._mode === "overlay"
-          ? "Switch to resize mode"
-          : "Switch to overlay mode"
+        this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode"
       );
-      modeBtn.setAttribute("data-mode", this._mode);
     }
 
     if (this._visible) {
-      if (this._mode === "resize") {
-        this._pushContent();
-      } else {
-        this._clearResize();
-      }
+      this._mode === "resize" ? this._pushContent() : this._clearResize();
     }
   }
 
   _pushContent() {
     const appcontent = this.doc.getElementById("appcontent");
-    if (appcontent) {
-      appcontent.style.marginRight = `${this._getWidth()}px`;
-    }
+    if (appcontent) appcontent.style.marginRight = `${this._getWidth()}px`;
   }
 
   _clearResize() {
     const appcontent = this.doc.getElementById("appcontent");
-    if (appcontent) {
-      appcontent.style.marginRight = "";
-    }
+    if (appcontent) appcontent.style.marginRight = "";
   }
 
   // ── Splitter / Resize ─────────────────────────────────────────────
@@ -428,53 +256,33 @@ export class ZenSidebar {
   _onSplitterDrag() {
     const onMouseMove = (e) => {
       const rect = this._container.getBoundingClientRect();
-      const newWidth = Math.max(200, Math.min(800, rect.right - e.clientX));
-      this._sidebarBox.style.width = `${newWidth}px`;
-      if (this._mode === "resize") {
-        this._pushContent();
-      }
+      const w = Math.max(200, Math.min(800, rect.right - e.clientX));
+      this._sidebarBox.style.width = `${w}px`;
+      if (this._mode === "resize") this._pushContent();
     };
-
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
-      // Persist width
       const w = parseInt(this._sidebarBox.style.width, 10);
-      if (w) {
-        Services.prefs.setIntPref(PREF_WIDTH, w);
-      }
+      if (w) Services.prefs.setIntPref(PREF_WIDTH, w);
     };
-
     this.doc.addEventListener("mousemove", onMouseMove);
     this.doc.addEventListener("mouseup", onMouseUp);
   }
 
-  // ── Panel Management (delegates to PanelManager) ──────────────────
+  // ── Panel Management ──────────────────────────────────────────────
 
   switchToPanel(panel) {
     this.panelManager.switchTo(panel);
-    this._updateTitle(panel.label);
-    if (!this._visible) {
-      this.show();
-    }
-  }
-
-  _updateTitle(title) {
-    const label = this.doc.getElementById("zen-sidebar-title");
-    if (label) {
-      label.setAttribute("value", title || "Web Panel");
-    }
+    this.updateNavBarVisibility();
+    if (!this._visible) this.show();
   }
 
   // ── Keyboard Shortcut ─────────────────────────────────────────────
 
   _registerKeybinding() {
     this._keyHandler = (e) => {
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        e.key.toLowerCase() === "e"
-      ) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
         this.toggle();
       }
@@ -483,17 +291,14 @@ export class ZenSidebar {
   }
 
   _removeKeybinding() {
-    if (this._keyHandler) {
-      this.win.removeEventListener("keydown", this._keyHandler);
-    }
+    if (this._keyHandler) this.win.removeEventListener("keydown", this._keyHandler);
   }
 
-  // ── Preferences / Persistence ─────────────────────────────────────
+  // ── Preferences ───────────────────────────────────────────────────
 
   _loadPrefs() {
     try {
-      this._mode =
-        Services.prefs.getStringPref(PREF_MODE, "overlay") || "overlay";
+      this._mode = Services.prefs.getStringPref(PREF_MODE, "overlay") || "overlay";
     } catch {
       this._mode = "overlay";
     }
@@ -520,9 +325,179 @@ export class ZenSidebar {
 
   _el(tag, attrs = {}) {
     const el = this.doc.createXULElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      el.setAttribute(k, v);
-    }
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
     return el;
   }
+
+  // ── Inline CSS ────────────────────────────────────────────────────
+
+  _injectInlineCSS() {
+    const style = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "style");
+    style.textContent = CSS_TEXT;
+    this.doc.documentElement.appendChild(style);
+    this._inlineStyleEl = style;
+  }
 }
+
+// All styles in one place
+const CSS_TEXT = `
+/* ── Sidebar Container ─────────────────────────────────────── */
+#zen-sidebar-box {
+  display: grid;
+  grid-template-columns: 1fr 42px;
+  grid-template-rows: auto 1fr;
+  background: var(--toolbar-bgcolor, #1c1b22);
+  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.15));
+  min-width: 250px;
+  max-width: 50vw;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+#zen-sidebar-box[hidden="true"] { display: none !important; }
+#zen-sidebar-box[data-mode="overlay"] {
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
+  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
+}
+#zen-sidebar-box[data-mode="resize"] { position: relative; z-index: 1; }
+
+/* ── Splitter ──────────────────────────────────────────────── */
+#zen-sidebar-splitter {
+  width: 3px; min-width: 3px; border: none; cursor: ew-resize;
+  background: transparent; z-index: 10001;
+}
+#zen-sidebar-splitter:hover { background: var(--zen-primary-color, color-mix(in srgb, AccentColor 80%, transparent)); }
+
+/* ── Nav Bar ───────────────────────────────────────────────── */
+#zen-sidebar-navbar {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; gap: 1px;
+  padding: 4px 6px;
+  background: var(--toolbar-bgcolor, #1c1b22);
+  border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
+  min-height: 32px;
+}
+#zen-sidebar-navbar[collapsed="true"] { display: none; }
+
+.zen-sb-nav-btn {
+  appearance: none;
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: transparent; border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+.zen-sb-nav-btn .toolbarbutton-icon {
+  width: 14px; height: 14px;
+  -moz-context-properties: fill;
+  fill: var(--toolbar-color, #fbfbfe);
+}
+.zen-sb-nav-btn:hover { background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08)); opacity: 1; }
+.zen-sb-nav-btn:active { background: var(--toolbarbutton-active-background, rgba(255,255,255,0.12)); }
+.zen-sb-close-btn:hover { background: rgba(255,70,70,0.25) !important; opacity: 1; }
+
+/* Mode toggle icon */
+#zen-sb-mode .toolbarbutton-icon { display: none; }
+#zen-sb-mode::after {
+  content: ""; width: 14px; height: 14px;
+  background: var(--toolbar-color, #fbfbfe);
+  mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+  opacity: 0.7;
+}
+#zen-sb-mode[data-mode="overlay"]::after {
+  mask-image: url("chrome://global/skin/icons/open-in-new.svg");
+}
+#zen-sb-mode[data-mode="resize"]::after {
+  mask-image: url("chrome://global/skin/icons/arrow-left.svg");
+}
+
+/* ── Panel Container ───────────────────────────────────────── */
+#zen-sidebar-panel-container {
+  grid-column: 1; grid-row: 2;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.zen-sidebar-web-panel-browser {
+  flex: 1; border: none;
+  background: var(--toolbar-bgcolor, #1c1b22);
+}
+
+/* ── Icon Toolbar (vertical strip) ─────────────────────────── */
+#zen-sidebar-toolbar {
+  grid-column: 2; grid-row: 2;
+  display: flex; flex-direction: column;
+  width: 42px; min-width: 42px;
+  background: var(--toolbar-bgcolor, #1c1b22);
+  border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
+  padding: 6px 0;
+}
+#zen-sidebar-toolbar-icons {
+  display: flex; flex-direction: column;
+  align-items: center; gap: 2px;
+  overflow-y: auto; overflow-x: hidden;
+  padding: 2px 0; flex: 1;
+}
+#zen-sidebar-toolbar-bottom {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 4px 0;
+  border-top: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
+}
+
+/* ── Panel Icons ───────────────────────────────────────────── */
+.zen-sidebar-panel-icon {
+  appearance: none;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 3px;
+  position: relative;
+  transition: background 0.12s, border-color 0.12s;
+}
+.zen-sidebar-panel-icon .toolbarbutton-icon { width: 18px; height: 18px; }
+.zen-sidebar-panel-icon:hover {
+  background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08));
+}
+.zen-sidebar-panel-icon[data-active="true"] {
+  background: var(--toolbarbutton-active-background, rgba(255,255,255,0.12));
+  border-color: var(--zen-primary-color, AccentColor);
+}
+
+/* Container color dot */
+.zen-sidebar-panel-icon[data-container-color]::after {
+  content: ""; position: absolute; bottom: 1px; right: 1px;
+  width: 7px; height: 7px; border-radius: 50%;
+  border: 1px solid var(--toolbar-bgcolor, #1c1b22);
+}
+.zen-sidebar-panel-icon[data-container-color="blue"]::after { background: #37adff; }
+.zen-sidebar-panel-icon[data-container-color="turquoise"]::after { background: #00c79a; }
+.zen-sidebar-panel-icon[data-container-color="green"]::after { background: #51cd00; }
+.zen-sidebar-panel-icon[data-container-color="yellow"]::after { background: #ffcb00; }
+.zen-sidebar-panel-icon[data-container-color="orange"]::after { background: #ff9f00; }
+.zen-sidebar-panel-icon[data-container-color="red"]::after { background: #ff613d; }
+.zen-sidebar-panel-icon[data-container-color="pink"]::after { background: #ff4bda; }
+.zen-sidebar-panel-icon[data-container-color="purple"]::after { background: #af51f5; }
+
+/* ── Add Button ────────────────────────────────────────────── */
+#zen-sidebar-add-btn {
+  appearance: none; width: 32px; height: 32px;
+  border-radius: 8px; background: transparent;
+  border: 1.5px dashed rgba(128,128,128,0.3);
+  cursor: pointer; color: var(--toolbar-color, #fbfbfe);
+  font-size: 18px; font-weight: 300;
+  opacity: 0.6; transition: opacity 0.15s, border-color 0.15s;
+}
+#zen-sidebar-add-btn:hover {
+  opacity: 1; border-color: var(--zen-primary-color, AccentColor);
+}
+
+/* ── Nav bar toggle toolbar button ─────────────────────────── */
+#zen-sidebar-toggle-toolbar-btn {
+  list-style-image: url("chrome://global/skin/icons/developer.svg");
+}
+
+/* ── Context Menu ──────────────────────────────────────────── */
+#zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
+`;

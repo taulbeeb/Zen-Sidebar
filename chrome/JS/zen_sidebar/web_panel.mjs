@@ -1,12 +1,12 @@
 export class WebPanel {
-  // userContextId: 0 = no container, 1+ = Firefox container ID
-  constructor(sidebar, { id, url, label, icon, userContextId = 0 }) {
+  constructor(sidebar, { id, url, label, icon, userContextId = 0, showToolbar = true }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
     this.label = label;
     this.icon = icon;
     this.userContextId = userContextId;
+    this.showToolbar = showToolbar;
     this._browser = null;
     this._loaded = false;
   }
@@ -31,12 +31,11 @@ export class WebPanel {
     this._browser.setAttribute("autocompletepopup", "PopupAutoComplete");
     this._browser.style.display = "none";
 
-    // Assign to a Firefox container if specified
     if (this.userContextId > 0) {
       this._browser.setAttribute("usercontextid", String(this.userContextId));
     }
 
-    // Set user agent to mobile for narrow sidebar panels
+    // Mobile UA for narrow sidebar panels
     this._browser.setAttribute(
       "useragent",
       "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
@@ -48,11 +47,9 @@ export class WebPanel {
   // ── Loading ───────────────────────────────────────────────────────
 
   load() {
-    if (!this._browser) return;
-    if (!this._loaded) {
-      this._browser.setAttribute("src", this.url);
-      this._loaded = true;
-    }
+    if (!this._browser || this._loaded) return;
+    this._browser.setAttribute("src", this.url);
+    this._loaded = true;
   }
 
   reload() {
