@@ -1,0 +1,7 @@
+/* Zen Sidebar - Chrome CSS
+ * Main styles are injected inline by zen_sidebar.uc.js
+ * This file ensures Zen Sidebar box has high ordinal to avoid conflicts.
+ */
+#zen-sidebar-box {
+  -moz-box-ordinal-group: 1000;
+}
