@@ -805,16 +805,30 @@ class ZenSidebar {
     const startX = startEvent.clientX;
     const startWidth = this._sidebarBox.getBoundingClientRect().width;
 
+    // Disable pointer events on panel content to prevent browser element stealing mouse
+    this._panelArea.style.pointerEvents = "none";
+    this._sidebarBox.style.userSelect = "none";
+
+    let pendingFrame = null;
+
     const onMouseMove = (e) => {
       e.preventDefault();
-      const delta = startX - e.clientX; // drag left = wider
-      const totalW = Math.max(200 + TOOLBAR_WIDTH, startWidth + delta);
-      this._sidebarBox.style.width = `${totalW}px`;
-      if (this._mode === "resize") this._pushContent();
+      if (pendingFrame) return; // throttle to animation frames
+      pendingFrame = this.win.requestAnimationFrame(() => {
+        pendingFrame = null;
+        const delta = startX - e.clientX;
+        const totalW = Math.max(200 + TOOLBAR_WIDTH, startWidth + delta);
+        this._sidebarBox.style.width = `${totalW}px`;
+        if (this._mode === "resize") this._pushContent();
+      });
     };
     const onMouseUp = () => {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
+      if (pendingFrame) this.win.cancelAnimationFrame(pendingFrame);
+      // Restore pointer events
+      this._panelArea.style.pointerEvents = "";
+      this._sidebarBox.style.userSelect = "";
       // Save to active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
       const panelW = totalW - TOOLBAR_WIDTH;
