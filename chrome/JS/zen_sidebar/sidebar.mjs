@@ -258,7 +258,7 @@ export class ZenSidebar {
     const onMouseMove = (e) => {
       e.preventDefault();
       const delta = startX - e.clientX; // drag left = wider
-      const totalW = Math.max(200 + TOOLBAR_WIDTH, Math.min(800 + TOOLBAR_WIDTH, startWidth + delta));
+      const totalW = Math.max(200 + TOOLBAR_WIDTH, startWidth + delta);
       this._sidebarBox.style.width = `${totalW}px`;
       if (this._mode === "resize") this._pushContent();
     };
