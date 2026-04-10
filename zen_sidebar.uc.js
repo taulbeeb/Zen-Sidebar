@@ -1718,12 +1718,37 @@ class ZenSidebar {
       }
     };
     menu.addEventListener("popupshowing", this._ctxPopupHandler);
+
+    // Tab context menu — "Move to Sidebar"
+    const tabMenu = this.doc.getElementById("tabContextMenu");
+    if (tabMenu) {
+      this._tabCtxSep = this.doc.createXULElement("menuseparator");
+      this._tabCtxSep.id = "zen-sidebar-tab-ctx-sep";
+
+      this._tabCtxMove = this.doc.createXULElement("menuitem");
+      this._tabCtxMove.id = "zen-sidebar-tab-ctx-move";
+      this._tabCtxMove.setAttribute("label", "Move to Sidebar");
+      this._tabCtxMove.addEventListener("command", () => {
+        const tab = this.win.TabContextMenu?.contextTab || this.win.gBrowser?.selectedTab;
+        if (tab) {
+          const url = tab.linkedBrowser?.currentURI?.spec || "";
+          if (url && url !== "about:blank") {
+            this.panelManager.addPanel(url);
+          }
+        }
+      });
+
+      tabMenu.appendChild(this._tabCtxSep);
+      tabMenu.appendChild(this._tabCtxMove);
+    }
   }
 
   _removeContentContextMenu() {
     if (this._ctxSep) this._ctxSep.remove();
     if (this._ctxOpenLink) this._ctxOpenLink.remove();
     if (this._ctxSearch) this._ctxSearch.remove();
+    if (this._tabCtxSep) this._tabCtxSep.remove();
+    if (this._tabCtxMove) this._tabCtxMove.remove();
     const menu = this.doc.getElementById("contentAreaContextMenu");
     if (menu && this._ctxPopupHandler) {
       menu.removeEventListener("popupshowing", this._ctxPopupHandler);
@@ -1895,7 +1920,7 @@ const CSS_TEXT = `
   width: 36px; height: 36px; min-width: 36px; min-height: 36px;
   border-radius: 10px; background: transparent;
   border: 2px solid transparent;
-  cursor: grab;
+  cursor: pointer;
   padding: 0;
   position: relative;
   transition: background 0.12s, border-color 0.12s;
