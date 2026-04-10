@@ -1383,17 +1383,22 @@ class ZenSidebar {
   }
 
   // ── Auto-Hide ──────────────────────────────────────────────────
-  // When enabled, the sidebar toolbar stays as a thin hover zone on the
-  // right edge. Hovering reveals the full sidebar; mousing away hides it
+  // When enabled, the entire sidebar collapses to a thin invisible
+  // trigger strip on the right edge. Hovering over it reveals the
+  // full sidebar (toolbar + panel). Mousing away hides everything
   // again after the configured delay.
 
   _setupAutoHide() {
-    // Clean up previous listeners
+    // Clean up previous
     if (this._autoHideEnterHandler) {
       this._sidebarBox.removeEventListener("mouseenter", this._autoHideEnterHandler);
       this._sidebarBox.removeEventListener("mouseleave", this._autoHideLeaveHandler);
       this._autoHideEnterHandler = null;
       this._autoHideLeaveHandler = null;
+    }
+    if (this._autoHideTrigger) {
+      this._autoHideTrigger.remove();
+      this._autoHideTrigger = null;
     }
     if (this._autoHideTimer) {
       clearTimeout(this._autoHideTimer);
@@ -1402,39 +1407,57 @@ class ZenSidebar {
 
     if (!this._autoHide) {
       this._sidebarBox.removeAttribute("data-auto-hide");
+      this._sidebarBox.style.display = "";
       return;
     }
 
-    this._sidebarBox.setAttribute("data-auto-hide", "true");
+    // Create a thin trigger strip fixed to the right edge
+    if (!this.doc.getElementById("zen-sidebar-autohide-trigger")) {
+      this._autoHideTrigger = this.doc.createXULElement("vbox");
+      this._autoHideTrigger.id = "zen-sidebar-autohide-trigger";
+      this._container.appendChild(this._autoHideTrigger);
+    } else {
+      this._autoHideTrigger = this.doc.getElementById("zen-sidebar-autohide-trigger");
+    }
 
-    // On mouse enter: if there's an active panel, expand it
-    this._autoHideEnterHandler = () => {
-      if (this._autoHideTimer) {
-        clearTimeout(this._autoHideTimer);
-        this._autoHideTimer = null;
-      }
+    // Start hidden
+    this._sidebarBox.setAttribute("data-auto-hide", "true");
+    this._sidebarBox.style.display = "none";
+
+    // Trigger strip: hover to reveal
+    this._autoHideTrigger.addEventListener("mouseenter", () => {
+      this._sidebarBox.style.display = "";
+      // If there's an active panel, show it
       const active = this.panelManager.activePanel;
       if (active && !this._panelOpen) {
         this.expandPanel(active);
       }
-    };
+    });
 
-    // On mouse leave: start a timer to collapse
+    // Sidebar: mouse leave to hide after delay
     this._autoHideLeaveHandler = () => {
-      if (!this._panelOpen) return;
+      if (this._autoHideTimer) clearTimeout(this._autoHideTimer);
       this._autoHideTimer = setTimeout(() => {
         this._autoHideTimer = null;
+        // Collapse panel if open
         if (this._panelOpen) {
-          // Collapse panel area but keep sidebar box visible for hover zone
           this._panelOpen = false;
           this._panelArea.setAttribute("hidden", "true");
           this._dragHandle.style.display = "none";
           this._sidebarBox.removeAttribute("data-panel-open");
           this._sidebarBox.style.width = "";
           this._clearResize();
-          // Don't clear active — we want to remember which panel to re-open
         }
+        // Hide the entire sidebar
+        this._sidebarBox.style.display = "none";
       }, this._autoHideDelay);
+    };
+
+    this._autoHideEnterHandler = () => {
+      if (this._autoHideTimer) {
+        clearTimeout(this._autoHideTimer);
+        this._autoHideTimer = null;
+      }
     };
 
     this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
@@ -1756,6 +1779,18 @@ const CSS_TEXT = `
 }
 /* Disabled nav buttons */
 .zen-sb-nav-btn[disabled="true"] { opacity: 0.25; pointer-events: none; }
+
+/* ── Auto-Hide Trigger Strip ──────────────────────────────── */
+#zen-sidebar-autohide-trigger {
+  position: fixed; right: 0; top: 0; bottom: 0;
+  width: 6px; z-index: 9999;
+  background: transparent;
+  cursor: pointer;
+}
+#zen-sidebar-autohide-trigger:hover {
+  background: var(--zen-primary-color, color-mix(in srgb, AccentColor 40%, transparent));
+}
+
 .zen-sidebar-drag-placeholder {
   width: 36px; min-height: 36px;
   border-radius: 10px;
