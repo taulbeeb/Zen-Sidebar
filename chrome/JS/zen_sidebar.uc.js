@@ -742,26 +742,21 @@ class SettingsDialog {
     const containers = this.sidebar.panelManager.getContainers();
     let containerSelect = null;
     if (containers.length > 0) {
-      containerSelect = html("select", { class: "zen-settings-input" });
-      const noOpt = html("option");
-      noOpt.value = "0";
-      noOpt.textContent = "No Container";
-      containerSelect.appendChild(noOpt);
+      containerSelect = xul("menulist", { class: "zen-settings-menulist" });
+      const cpopup = xul("menupopup");
+      cpopup.appendChild(xul("menuitem", { value: "0", label: "No Container" }));
       for (const c of containers) {
-        const opt = html("option");
-        opt.value = String(c.userContextId);
-        opt.textContent = c.name;
-        if ((p.userContextId || 0) === c.userContextId) opt.selected = true;
-        containerSelect.appendChild(opt);
+        cpopup.appendChild(xul("menuitem", { value: String(c.userContextId), label: c.name }));
       }
-      content.appendChild(label("Container"));
-      content.appendChild(containerSelect);
+      containerSelect.appendChild(cpopup);
+      containerSelect.value = String(p.userContextId || 0);
+      content.appendChild(row(label("Container"), containerSelect));
     }
 
     // Mobile UA
-    const mobileCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    mobileCheck.checked = p.mobileUA !== false;
-    content.appendChild(row(mobileCheck, label("Mobile User Agent")));
+    const mobileCheck = xul("checkbox", { label: "Mobile User Agent", class: "zen-settings-check" });
+    if (p.mobileUA !== false) mobileCheck.setAttribute("checked", "true");
+    content.appendChild(mobileCheck);
 
     // Zoom
     const zoomInput = html("input", {
@@ -772,19 +767,18 @@ class SettingsDialog {
     content.appendChild(row(label("Zoom"), zoomInput));
 
     // Auto-reload interval
-    const reloadSelect = html("select", { class: "zen-settings-input" });
+    const reloadSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const reloadPopup = xul("menupopup");
     const reloadOpts = [
       [0, "Off"], [30000, "30 seconds"], [60000, "1 minute"],
       [300000, "5 minutes"], [900000, "15 minutes"],
       [1800000, "30 minutes"], [3600000, "1 hour"],
     ];
     for (const [val, text] of reloadOpts) {
-      const opt = html("option");
-      opt.value = String(val);
-      opt.textContent = text;
-      if ((p.autoReloadInterval || 0) === val) opt.selected = true;
-      reloadSelect.appendChild(opt);
+      reloadPopup.appendChild(xul("menuitem", { value: String(val), label: text }));
     }
+    reloadSelect.appendChild(reloadPopup);
+    reloadSelect.value = String(p.autoReloadInterval || 0);
     content.appendChild(row(label("Auto-Reload"), reloadSelect));
 
     // CSS Selector
@@ -820,24 +814,23 @@ class SettingsDialog {
     content.appendChild(row(keyInput, keyClearBtn));
 
     // Tooltip mode
-    const tooltipSelect = html("select", { class: "zen-settings-input" });
+    const tooltipSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const tooltipPopup = xul("menupopup");
     for (const opt of ["title", "url", "both", "off"]) {
-      const o = html("option");
-      o.value = opt;
-      o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
-      if ((p.tooltipMode || "title") === opt) o.selected = true;
-      tooltipSelect.appendChild(o);
+      tooltipPopup.appendChild(xul("menuitem", { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }));
     }
+    tooltipSelect.appendChild(tooltipPopup);
+    tooltipSelect.value = p.tooltipMode || "title";
     content.appendChild(row(label("Tooltip"), tooltipSelect));
 
     // Memory management
-    const loadStartupCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    loadStartupCheck.checked = p.loadOnStartup !== false;
-    content.appendChild(row(loadStartupCheck, label("Load on Startup")));
+    const loadStartupCheck = xul("checkbox", { label: "Load on Startup", class: "zen-settings-check" });
+    if (p.loadOnStartup !== false) loadStartupCheck.setAttribute("checked", "true");
+    content.appendChild(loadStartupCheck);
 
-    const unloadCloseCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    unloadCloseCheck.checked = p.unloadOnClose || false;
-    content.appendChild(row(unloadCloseCheck, label("Unload on Close")));
+    const unloadCloseCheck = xul("checkbox", { label: "Unload on Close", class: "zen-settings-check" });
+    if (p.unloadOnClose) unloadCloseCheck.setAttribute("checked", "true");
+    content.appendChild(unloadCloseCheck);
 
     // Title/Favicon overrides
     const customTitleInput = html("input", {
@@ -947,9 +940,9 @@ class SettingsDialog {
     content.appendChild(xul("label", { value: "Sidebar Settings", class: "zen-settings-title" }));
 
     // Auto-hide
-    const autoHideCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    autoHideCheck.checked = s._autoHide;
-    content.appendChild(row(autoHideCheck, label("Auto-Hide Sidebar")));
+    const autoHideCheck = xul("checkbox", { label: "Auto-Hide Sidebar", class: "zen-settings-check" });
+    if (s._autoHide) autoHideCheck.setAttribute("checked", "true");
+    content.appendChild(autoHideCheck);
 
     const autoHideDelayInput = html("input", {
       type: "number", min: "100", max: "5000", step: "100",
@@ -957,13 +950,13 @@ class SettingsDialog {
     });
     content.appendChild(row(label("Hide Delay (ms)"), autoHideDelayInput));
 
-    const autoHideModeSelect = html("select", { class: "zen-settings-input" });
+    const autoHideModeSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const hmPopup = xul("menupopup");
     for (const m of ["slide", "overlay"]) {
-      const o = html("option");
-      o.value = m; o.textContent = m.charAt(0).toUpperCase() + m.slice(1);
-      if (s._autoHideMode === m) o.selected = true;
-      autoHideModeSelect.appendChild(o);
+      hmPopup.appendChild(xul("menuitem", { value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }));
     }
+    autoHideModeSelect.appendChild(hmPopup);
+    autoHideModeSelect.value = s._autoHideMode;
     content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
 
     // Padding
@@ -974,33 +967,33 @@ class SettingsDialog {
     content.appendChild(row(label("Panel Padding"), paddingInput));
 
     // Container indicator position
-    const indicatorSelect = html("select", { class: "zen-settings-input" });
+    const indicatorSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const ciPopup = xul("menupopup");
     for (const pos of ["bottom-right", "bottom-left", "top-right", "top-left", "left", "right", "top", "bottom"]) {
-      const o = html("option");
-      o.value = pos; o.textContent = pos;
-      if (s._containerIndicatorPosition === pos) o.selected = true;
-      indicatorSelect.appendChild(o);
+      ciPopup.appendChild(xul("menuitem", { value: pos, label: pos }));
     }
+    indicatorSelect.appendChild(ciPopup);
+    indicatorSelect.value = s._containerIndicatorPosition;
     content.appendChild(row(label("Container Indicator"), indicatorSelect));
 
     // Animations
-    const animCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    animCheck.checked = s._animations;
-    content.appendChild(row(animCheck, label("Animations")));
+    const animCheck = xul("checkbox", { label: "Animations", class: "zen-settings-check" });
+    if (s._animations) animCheck.setAttribute("checked", "true");
+    content.appendChild(animCheck);
 
     // Auto-hide nav buttons
-    const navBtnCheck = html("input", { type: "checkbox", class: "zen-settings-check" });
-    navBtnCheck.checked = s._autoHideNavButtons;
-    content.appendChild(row(navBtnCheck, label("Auto-hide Nav Buttons")));
+    const navBtnCheck = xul("checkbox", { label: "Auto-hide Nav Buttons", class: "zen-settings-check" });
+    if (s._autoHideNavButtons) navBtnCheck.setAttribute("checked", "true");
+    content.appendChild(navBtnCheck);
 
     // Default tooltip mode
-    const tooltipSelect = html("select", { class: "zen-settings-input" });
+    const tooltipSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const ttPopup = xul("menupopup");
     for (const opt of ["title", "url", "both", "off"]) {
-      const o = html("option");
-      o.value = opt; o.textContent = opt.charAt(0).toUpperCase() + opt.slice(1);
-      if (s._tooltipDefault === opt) o.selected = true;
-      tooltipSelect.appendChild(o);
+      ttPopup.appendChild(xul("menuitem", { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }));
     }
+    tooltipSelect.appendChild(ttPopup);
+    tooltipSelect.value = s._tooltipDefault;
     content.appendChild(row(label("Default Tooltip"), tooltipSelect));
 
     // Buttons
@@ -1634,11 +1627,15 @@ const CSS_TEXT = `
 }
 .zen-settings-label {
   font-size: 12px; opacity: 0.8;
-  min-width: 0;
+  white-space: nowrap; flex-shrink: 0;
 }
 .zen-settings-row {
   display: flex; align-items: center; gap: 8px;
   min-height: 28px;
+}
+.zen-settings-row .zen-settings-input,
+.zen-settings-row .zen-settings-menulist {
+  width: auto; flex: 1; min-width: 0;
 }
 .zen-settings-input {
   background: rgba(255,255,255,0.07);
@@ -1656,10 +1653,26 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 .zen-settings-input-short { width: 80px; flex-shrink: 0; }
+/* XUL checkbox */
 .zen-settings-check {
-  width: 16px; height: 16px; flex-shrink: 0;
-  accent-color: var(--zen-primary-color, AccentColor);
+  margin: 4px 0;
+  font-size: 12px;
 }
+.zen-settings-check > .checkbox-label { opacity: 0.9; }
+/* XUL menulist (dropdown) */
+.zen-settings-menulist {
+  appearance: none;
+  background: rgba(255,255,255,0.07);
+  color: var(--panel-color, #fbfbfe);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  min-height: 28px;
+  width: 100%;
+}
+.zen-settings-menulist > .menulist-label-box { flex: 1; }
+.zen-settings-menulist > dropmarker { display: -moz-box; margin-inline-start: 4px; }
 .zen-settings-btn-row {
   display: flex; gap: 8px; margin-top: 8px;
   justify-content: flex-end;
