@@ -75,12 +75,37 @@ class WebPanel {
     }
 
     container.appendChild(this._browser);
+    // Apply mute state and attach listeners
+    if (this.muted) {
+      try { this._browser.audioMuted = true; } catch {}
+    }
+    this.attachBrowserListeners();
   }
 
   load() {
     if (!this._browser || this._loaded) return;
     this._browser.setAttribute("src", this.url);
     this._loaded = true;
+    this._applyCSSSelector();
+  }
+
+  _applyCSSSelector() {
+    if (!this._browser || !this.cssSelector) return;
+    const sel = this.cssSelector.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$/g, "\\$");
+    try {
+      this._browser.messageManager.loadFrameScript(`data:,
+        addEventListener("DOMContentLoaded", function() {
+          try {
+            var s = content.document.createElement("style");
+            s.textContent = "body > *:not(${sel}):not(:has(${sel})) { display: none !important; } ${sel} { display: block !important; position: relative !important; width: 100% !important; min-height: 100vh !important; margin: 0 !important; padding: 8px !important; box-sizing: border-box !important; }";
+            s.id = "zen-sidebar-css-extract";
+            var old = content.document.getElementById("zen-sidebar-css-extract");
+            if (old) old.remove();
+            content.document.head.appendChild(s);
+          } catch(e) {}
+        }, true);
+      `, true);
+    } catch {}
   }
 
   reload() {
@@ -111,6 +136,7 @@ class WebPanel {
   }
 
   unload() {
+    this.detachBrowserListeners();
     if (this._browser) {
       this._browser.remove();
       this._browser = null;
@@ -140,7 +166,72 @@ class WebPanel {
   zoomOut() { this.setZoom((this.zoom || 1.0) - 0.1); }
   resetZoom() { this.setZoom(1.0); }
 
+  // ── Dynamic Title / Favicon / Audio / Notifications ───────────
+
+  attachBrowserListeners() {
+    if (!this._browser) return;
+    this._onTitleChanged = () => {
+      const title = this._browser.contentTitle || "";
+      // Update label if dynamic and no custom override
+      if (this.dynamicTitle && !this.customTitle && title) {
+        this.label = title;
+        this.sidebar.toolbar.updateIcon(this);
+      }
+      // Parse notification badge from title
+      this._parseBadge(title);
+    };
+    this._onLinkAdded = (e) => {
+      if (!this.dynamicFavicon || this.customIcon) return;
+      const link = e.originalTarget;
+      if (link && link.rel && /icon/i.test(link.rel) && link.href) {
+        this.icon = link.href;
+        this.sidebar.toolbar.updateIcon(this);
+      }
+    };
+    this._onAudioStart = () => {
+      this._audioPlaying = true;
+      this.sidebar.toolbar.updateAudioState(this);
+    };
+    this._onAudioStop = () => {
+      this._audioPlaying = false;
+      this.sidebar.toolbar.updateAudioState(this);
+    };
+
+    this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
+    this._browser.addEventListener("DOMLinkAdded", this._onLinkAdded);
+    this._browser.addEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    this._browser.addEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
+  }
+
+  detachBrowserListeners() {
+    if (!this._browser) return;
+    if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
+    if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
+    if (this._onAudioStart) this._browser.removeEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    if (this._onAudioStop) this._browser.removeEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
+  }
+
+  _parseBadge(title) {
+    if (!title) { this._badge = 0; this.sidebar.toolbar.updateBadge(this); return; }
+    const m = title.match(/^\((\d+)\)/) || title.match(/^\[(\d+)\]/) || title.match(/^(\d+)\s*[|:]/);
+    const count = m ? Math.min(parseInt(m[1], 10), 99) : 0;
+    if (count !== this._badge) {
+      this._badge = count;
+      this.sidebar.toolbar.updateBadge(this);
+    }
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this._browser) {
+      try { this._browser.audioMuted = this.muted; } catch {}
+    }
+    this.sidebar.toolbar.updateAudioState(this);
+    this.sidebar.panelManager.save();
+  }
+
   destroy() {
+    this.detachBrowserListeners();
     if (this._browser) {
       this._browser.remove();
       this._browser = null;
@@ -485,6 +576,30 @@ class Toolbar {
     if (this.sidebar.panelManager.activePanel) this.setActive(this.sidebar.panelManager.activePanel);
   }
 
+  // ── Audio & Badge Indicators ───────────────────────────────────────
+
+  updateAudioState(panel) {
+    const btn = this._icons.get(panel.id);
+    if (!btn) return;
+    if (panel._audioPlaying && !panel.muted) {
+      btn.setAttribute("data-audio", "playing");
+    } else if (panel.muted) {
+      btn.setAttribute("data-audio", "muted");
+    } else {
+      btn.removeAttribute("data-audio");
+    }
+  }
+
+  updateBadge(panel) {
+    const btn = this._icons.get(panel.id);
+    if (!btn) return;
+    if (panel._badge > 0) {
+      btn.setAttribute("data-badge", String(panel._badge));
+    } else {
+      btn.removeAttribute("data-badge");
+    }
+  }
+
   // ── Drag & Drop Reordering ────────────────────────────────────────
 
   _setupDrag(btn, panel) {
@@ -661,6 +776,12 @@ class Toolbar {
       }
     });
 
+    // Mute/Unmute
+    const muteItem = this._el("menuitem", {
+      label: panel.muted ? "Unmute" : "Mute",
+    });
+    muteItem.addEventListener("command", () => panel.toggleMute());
+
     // Unload from memory
     const unloadItem = this._el("menuitem", {
       label: panel.isLoaded ? "Unload from Memory" : "Load into Memory",
@@ -689,7 +810,7 @@ class Toolbar {
       sep2,
       toolbarItem, reloadItem, homeItem,
       openTabItem, copyUrlItem,
-      unloadItem,
+      muteItem, unloadItem,
       this._el("menuseparator"),
       removeItem
     );
@@ -1155,6 +1276,7 @@ class ZenSidebar {
     this._injectInlineCSS();
     this._applyVisualPrefs();
     this._registerKeybinding();
+    this._registerContentContextMenu();
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
     console.log("[ZenSidebar] Ready.");
@@ -1162,6 +1284,7 @@ class ZenSidebar {
 
   destroy() {
     this._removeKeybinding();
+    this._removeContentContextMenu();
     this._savePrefs();
     for (const el of [this._sidebarBox, this._inlineStyleEl]) {
       if (el) el.remove();
@@ -1548,6 +1671,65 @@ class ZenSidebar {
     if (this._keyHandler) this.win.removeEventListener("keydown", this._keyHandler);
   }
 
+  // ── Content Context Menu (right-click on web pages) ───────────────
+
+  _registerContentContextMenu() {
+    const menu = this.doc.getElementById("contentAreaContextMenu");
+    if (!menu) return;
+
+    this._ctxSep = this.doc.createXULElement("menuseparator");
+    this._ctxSep.id = "zen-sidebar-ctx-sep";
+
+    this._ctxOpenLink = this.doc.createXULElement("menuitem");
+    this._ctxOpenLink.id = "zen-sidebar-ctx-open-link";
+    this._ctxOpenLink.setAttribute("label", "Open Link in Sidebar");
+    this._ctxOpenLink.setAttribute("hidden", "true");
+    this._ctxOpenLink.addEventListener("command", () => {
+      const url = this.win.gContextMenu?.linkURL;
+      if (url) this.panelManager.addPanel(url);
+    });
+
+    this._ctxSearch = this.doc.createXULElement("menuitem");
+    this._ctxSearch.id = "zen-sidebar-ctx-search";
+    this._ctxSearch.setAttribute("label", "Search in Sidebar");
+    this._ctxSearch.setAttribute("hidden", "true");
+    this._ctxSearch.addEventListener("command", () => {
+      const text = this.win.gContextMenu?.selectionInfo?.text;
+      if (text) {
+        const url = `https://www.google.com/search?q=${encodeURIComponent(text.trim().slice(0, 200))}`;
+        this.panelManager.addPanel(url);
+      }
+    });
+
+    menu.appendChild(this._ctxSep);
+    menu.appendChild(this._ctxOpenLink);
+    menu.appendChild(this._ctxSearch);
+
+    this._ctxPopupHandler = () => {
+      const ctx = this.win.gContextMenu;
+      const hasLink = !!(ctx && ctx.linkURL);
+      const hasSelection = !!(ctx && ctx.selectionInfo && ctx.selectionInfo.text);
+      this._ctxOpenLink.hidden = !hasLink;
+      this._ctxSearch.hidden = !hasSelection;
+      this._ctxSep.hidden = !hasLink && !hasSelection;
+      if (hasSelection) {
+        const preview = ctx.selectionInfo.text.trim().slice(0, 30);
+        this._ctxSearch.setAttribute("label", `Search "${preview}${ctx.selectionInfo.text.length > 30 ? "..." : ""}" in Sidebar`);
+      }
+    };
+    menu.addEventListener("popupshowing", this._ctxPopupHandler);
+  }
+
+  _removeContentContextMenu() {
+    if (this._ctxSep) this._ctxSep.remove();
+    if (this._ctxOpenLink) this._ctxOpenLink.remove();
+    if (this._ctxSearch) this._ctxSearch.remove();
+    const menu = this.doc.getElementById("contentAreaContextMenu");
+    if (menu && this._ctxPopupHandler) {
+      menu.removeEventListener("popupshowing", this._ctxPopupHandler);
+    }
+  }
+
   // ── Preferences ───────────────────────────────────────────────────
 
   _loadPrefs() {
@@ -1633,7 +1815,7 @@ const CSS_TEXT = `
   flex: 1; min-width: 0;
   overflow: hidden;
   border-radius: 10px;
-  margin: 8px 8px 8px 0;
+  margin: var(--zen-sidebar-padding, 8px) var(--zen-sidebar-padding, 8px) var(--zen-sidebar-padding, 8px) 0;
   border: 1px solid rgba(0, 0, 0, 0.3);
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
@@ -1732,12 +1914,20 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 
-/* Container color dot */
+/* Container color dot — default bottom-right */
 .zen-sidebar-panel-icon[data-container-color]::after {
   content: ""; position: absolute; bottom: 0px; right: 0px;
   width: 8px; height: 8px; border-radius: 50%;
   border: 1.5px solid var(--toolbar-bgcolor, #1c1b22);
 }
+/* Container indicator position variants */
+[data-indicator-pos="bottom-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: 0; right: auto; left: 0; }
+[data-indicator-pos="top-right"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: 0; }
+[data-indicator-pos="top-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: auto; left: 0; }
+[data-indicator-pos="left"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); left: -2px; right: auto; bottom: auto; }
+[data-indicator-pos="right"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); right: -2px; left: auto; bottom: auto; }
+[data-indicator-pos="top"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; top: -2px; left: 50%; transform: translateX(-50%); right: auto; bottom: auto; }
+[data-indicator-pos="bottom"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; bottom: -2px; left: 50%; transform: translateX(-50%); right: auto; top: auto; }
 .zen-sidebar-panel-icon[data-container-color="blue"]::after { background: #37adff; }
 .zen-sidebar-panel-icon[data-container-color="turquoise"]::after { background: #00c79a; }
 .zen-sidebar-panel-icon[data-container-color="green"]::after { background: #51cd00; }
@@ -1772,6 +1962,40 @@ const CSS_TEXT = `
 .zen-sidebar-panel-icon[data-unloaded="true"] {
   opacity: 0.35;
 }
+
+/* ── Audio indicator ──────────────────────────────────────── */
+.zen-sidebar-panel-icon[data-audio="playing"]::before {
+  content: ""; position: absolute; top: 0px; left: 0px;
+  width: 10px; height: 10px;
+  background: url("chrome://browser/skin/notification-icons/audio.svg") center/8px no-repeat;
+  -moz-context-properties: fill; fill: #fff;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.5));
+}
+.zen-sidebar-panel-icon[data-audio="muted"]::before {
+  content: ""; position: absolute; top: 0px; left: 0px;
+  width: 10px; height: 10px;
+  background: url("chrome://browser/skin/notification-icons/audio-muted.svg") center/8px no-repeat;
+  -moz-context-properties: fill; fill: #ff6b6b;
+  filter: drop-shadow(0 0 2px rgba(0,0,0,0.5));
+}
+
+/* ── Notification badge ───────────────────────────────────── */
+.zen-sidebar-panel-icon[data-badge]::after {
+  content: attr(data-badge);
+  position: absolute; top: -2px; right: -2px;
+  min-width: 14px; height: 14px;
+  background: #e03e3e; color: #fff;
+  font-size: 9px; font-weight: 700;
+  line-height: 14px; text-align: center;
+  border-radius: 7px; padding: 0 3px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--toolbar-bgcolor, #1c1b22);
+}
+/* Badge overrides the container color dot — hide dot when badge present */
+.zen-sidebar-panel-icon[data-badge][data-container-color]::after {
+  background: #e03e3e;
+}
+
 /* Disabled nav buttons */
 .zen-sb-nav-btn[disabled="true"] { opacity: 0.25; pointer-events: none; }
 
@@ -1796,6 +2020,10 @@ const CSS_TEXT = `
 
 /* ── Context Menu ──────────────────────────────────────────── */
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
+
+/* ── Animation Toggle ─────────────────────────────────────── */
+#zen-sidebar-box[data-no-animations] *,
+#zen-sidebar-box[data-no-animations] { transition: none !important; }
 
 /* ── Settings Gear Button ─────────────────────────────────── */
 #zen-sidebar-settings-btn {
