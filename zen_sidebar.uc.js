@@ -907,7 +907,7 @@ class SettingsDialog {
       type: "arrow",
       class: "zen-settings-popup",
       role: "dialog",
-      noautohide: "false",
+      noautohide: "true",
     });
 
     const content = xul("vbox", { class: "zen-settings-content" });
@@ -1131,7 +1131,7 @@ class SettingsDialog {
       type: "arrow",
       class: "zen-settings-popup",
       role: "dialog",
-      noautohide: "false",
+      noautohide: "true",
     });
     const content = xul("vbox", { class: "zen-settings-content" });
     content.appendChild(xul("label", { value: "Sidebar Settings", class: "zen-settings-title" }));
@@ -1732,8 +1732,9 @@ class ZenSidebar {
         const tab = this.win.TabContextMenu?.contextTab || this.win.gBrowser?.selectedTab;
         if (tab) {
           const url = tab.linkedBrowser?.currentURI?.spec || "";
+          const userContextId = tab.userContextId || tab.getAttribute("usercontextid") || 0;
           if (url && url !== "about:blank") {
-            this.panelManager.addPanel(url);
+            this.panelManager.addPanel(url, null, null, parseInt(userContextId, 10) || 0);
           }
         }
       });
