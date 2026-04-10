@@ -90,6 +90,7 @@ class WebPanel {
   }
 
   show() {
+    this.ensureBrowser();
     if (!this._browser) return;
     this.load();
     this._browser.style.display = "";
@@ -100,6 +101,24 @@ class WebPanel {
     if (!this._browser) return;
     this._browser.style.display = "none";
   }
+
+  // ── Memory Management ─────────────────────────────────────────
+
+  ensureBrowser() {
+    if (!this._browser) {
+      this.createBrowser();
+    }
+  }
+
+  unload() {
+    if (this._browser) {
+      this._browser.remove();
+      this._browser = null;
+      this._loaded = false;
+    }
+  }
+
+  get isLoaded() { return !!this._browser; }
 
   // ── Zoom ──────────────────────────────────────────────────────
 
@@ -178,6 +197,7 @@ class PanelManager {
     const idx = this.panels.indexOf(panel);
     if (idx === -1) return;
 
+    this._stopAutoReload(panel);
     panel.destroy();
     this.panels.splice(idx, 1);
     this.sidebar.toolbar.removeIcon(panel);
@@ -284,8 +304,13 @@ class PanelManager {
         tooltipMode: p.tooltipMode || "title",
       });
       this.panels.push(panel);
-      panel.createBrowser();
+      if (panel.loadOnStartup) {
+        panel.createBrowser();
+      }
       this.sidebar.toolbar.addIcon(panel);
+      if (!panel.loadOnStartup) {
+        this.sidebar.toolbar.updateUnloadedState(panel);
+      }
     }
 
     if (data.activeId) {
@@ -294,6 +319,29 @@ class PanelManager {
         this._activePanel = active;
         this.sidebar.toolbar.setActive(active);
       }
+    }
+
+    // Start auto-reload timers
+    for (const panel of this.panels) {
+      if (panel.autoReloadInterval > 0 && panel.isLoaded) {
+        this._startAutoReload(panel);
+      }
+    }
+  }
+
+  _startAutoReload(panel) {
+    this._stopAutoReload(panel);
+    if (panel.autoReloadInterval > 0) {
+      panel._autoReloadTimerId = setInterval(() => {
+        if (panel._browser) panel._browser.reload();
+      }, panel.autoReloadInterval);
+    }
+  }
+
+  _stopAutoReload(panel) {
+    if (panel._autoReloadTimerId) {
+      clearInterval(panel._autoReloadTimerId);
+      panel._autoReloadTimerId = null;
     }
   }
 
@@ -417,6 +465,16 @@ class Toolbar {
 
   clearActive() {
     for (const btn of this._icons.values()) btn.removeAttribute("data-active");
+  }
+
+  updateUnloadedState(panel) {
+    const btn = this._icons.get(panel.id);
+    if (!btn) return;
+    if (!panel.isLoaded) {
+      btn.setAttribute("data-unloaded", "true");
+    } else {
+      btn.removeAttribute("data-unloaded");
+    }
   }
 
   rebuild() {
@@ -603,6 +661,23 @@ class Toolbar {
       }
     });
 
+    // Unload from memory
+    const unloadItem = this._el("menuitem", {
+      label: panel.isLoaded ? "Unload from Memory" : "Load into Memory",
+    });
+    unloadItem.addEventListener("command", () => {
+      if (panel.isLoaded) {
+        panel.unload();
+        this.updateUnloadedState(panel);
+        if (this.sidebar.panelManager.activePanel === panel) {
+          this.sidebar.collapsePanel();
+        }
+      } else {
+        panel.ensureBrowser();
+        this.updateUnloadedState(panel);
+      }
+    });
+
     const sep2 = this._el("menuseparator");
 
     const removeItem = this._el("menuitem", { label: "Remove Panel" });
@@ -614,6 +689,7 @@ class Toolbar {
       sep2,
       toolbarItem, reloadItem, homeItem,
       openTabItem, copyUrlItem,
+      unloadItem,
       this._el("menuseparator"),
       removeItem
     );
@@ -1193,6 +1269,15 @@ class ZenSidebar {
     } else {
       this._navBar.removeAttribute("collapsed");
     }
+    // Auto-hide back/forward when not applicable
+    if (this._autoHideNavButtons && panel._browser) {
+      const backBtn = this.doc.getElementById("zen-sb-back");
+      const fwdBtn = this.doc.getElementById("zen-sb-forward");
+      try {
+        if (backBtn) backBtn.disabled = !panel._browser.canGoBack;
+        if (fwdBtn) fwdBtn.disabled = !panel._browser.canGoForward;
+      } catch {}
+    }
   }
 
   // ── Panel Expand / Collapse ───────────────────────────────────────
@@ -1222,6 +1307,13 @@ class ZenSidebar {
     this._sidebarBox.style.width = "";
     this._clearResize();
     this.toolbar.clearActive();
+    // Unload panels that have unloadOnClose enabled
+    for (const panel of this.panelManager.panels) {
+      if (panel.unloadOnClose && panel.isLoaded) {
+        panel.unload();
+        this.toolbar.updateUnloadedState(panel);
+      }
+    }
   }
 
   switchToPanel(panel) {
@@ -1286,6 +1378,40 @@ class ZenSidebar {
     } else {
       this._sidebarBox.removeAttribute("data-no-animations");
     }
+    this._setupAutoHide();
+  }
+
+  // ── Auto-Hide ──────────────────────────────────────────────────
+
+  _setupAutoHide() {
+    // Remove old listeners
+    if (this._autoHideEnterHandler) {
+      this._sidebarBox.removeEventListener("mouseenter", this._autoHideEnterHandler);
+      this._sidebarBox.removeEventListener("mouseleave", this._autoHideLeaveHandler);
+      this._autoHideEnterHandler = null;
+      this._autoHideLeaveHandler = null;
+    }
+    if (this._autoHideTimer) {
+      clearTimeout(this._autoHideTimer);
+      this._autoHideTimer = null;
+    }
+
+    if (!this._autoHide) return;
+
+    this._autoHideLeaveHandler = () => {
+      if (!this._panelOpen) return;
+      this._autoHideTimer = setTimeout(() => {
+        if (this._panelOpen) this.collapsePanel();
+      }, this._autoHideDelay);
+    };
+    this._autoHideEnterHandler = () => {
+      if (this._autoHideTimer) {
+        clearTimeout(this._autoHideTimer);
+        this._autoHideTimer = null;
+      }
+    };
+    this._sidebarBox.addEventListener("mouseleave", this._autoHideLeaveHandler);
+    this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
   }
 
   // ── Drag Handle Resize (saves per-panel width) ─────────────────────
@@ -1336,6 +1462,7 @@ class ZenSidebar {
 
   _registerKeybinding() {
     this._keyHandler = (e) => {
+      // Global toggle: Ctrl+Shift+E
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
         if (this._panelOpen) {
@@ -1344,9 +1471,32 @@ class ZenSidebar {
           const active = this.panelManager.activePanel;
           if (active) this.switchToPanel(active);
         }
+        return;
+      }
+      // Per-panel shortcuts
+      for (const panel of this.panelManager.panels) {
+        if (!panel.keybinding) continue;
+        if (this._matchKeybinding(e, panel.keybinding)) {
+          e.preventDefault();
+          this.switchToPanel(panel);
+          return;
+        }
       }
     };
     this.win.addEventListener("keydown", this._keyHandler);
+  }
+
+  _matchKeybinding(event, binding) {
+    const parts = binding.toLowerCase().split("+");
+    const key = parts.pop();
+    const needCtrl = parts.includes("ctrl");
+    const needShift = parts.includes("shift");
+    const needAlt = parts.includes("alt");
+    if (needCtrl !== (event.ctrlKey || event.metaKey)) return false;
+    if (needShift !== event.shiftKey) return false;
+    if (needAlt !== event.altKey) return false;
+    const eventKey = event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
+    return eventKey === key;
   }
 
   _removeKeybinding() {
@@ -1573,6 +1723,12 @@ const CSS_TEXT = `
 .zen-sidebar-panel-icon[data-dragging="true"] {
   opacity: 0.7; cursor: grabbing !important;
 }
+/* Unloaded panel icon */
+.zen-sidebar-panel-icon[data-unloaded="true"] {
+  opacity: 0.35;
+}
+/* Disabled nav buttons */
+.zen-sb-nav-btn[disabled="true"] { opacity: 0.25; pointer-events: none; }
 .zen-sidebar-drag-placeholder {
   width: 36px; min-height: 36px;
   border-radius: 10px;
