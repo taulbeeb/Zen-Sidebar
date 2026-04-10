@@ -150,7 +150,7 @@ echo "Target profile: $PROFILE_DIR"
 echo ""
 
 # Verify source files exist
-if [ ! -d "$SRC_CHROME/JS/zen_sidebar" ]; then
+if [ ! -f "$SRC_CHROME/JS/zen_sidebar.uc.js" ]; then
   echo "Error: Source files not found. Run this script from the Zen-Sidebar directory."
   exit 1
 fi
@@ -158,24 +158,13 @@ fi
 # Create chrome/JS directory if needed
 CHROME_DIR="$PROFILE_DIR/chrome"
 JS_DIR="$CHROME_DIR/JS"
-mkdir -p "$JS_DIR/zen_sidebar"
+mkdir -p "$JS_DIR"
 
 # Copy files
 echo "Installing files..."
 
-cp "$SRC_CHROME/JS/zen_sidebar.uc.mjs" "$JS_DIR/zen_sidebar.uc.mjs"
-echo "  ✓ JS/zen_sidebar.uc.mjs"
-
-for f in sidebar.mjs panel_manager.mjs toolbar.mjs web_panel.mjs; do
-  cp "$SRC_CHROME/JS/zen_sidebar/$f" "$JS_DIR/zen_sidebar/$f"
-  echo "  ✓ JS/zen_sidebar/$f"
-done
-
-# Copy sidebar.css if it exists (may not be used but include for completeness)
-if [ -f "$SRC_CHROME/JS/zen_sidebar/sidebar.css" ]; then
-  cp "$SRC_CHROME/JS/zen_sidebar/sidebar.css" "$JS_DIR/zen_sidebar/sidebar.css"
-  echo "  ✓ JS/zen_sidebar/sidebar.css"
-fi
+cp "$SRC_CHROME/JS/zen_sidebar.uc.js" "$JS_DIR/zen_sidebar.uc.js"
+echo "  ✓ JS/zen_sidebar.uc.js"
 
 # Merge userChrome.css if it exists
 if [ -f "$SRC_CHROME/userChrome.css" ]; then
@@ -205,7 +194,6 @@ echo "     (e.g. fx-autoconfig or similar)"
 echo "  2. Restart Zen Browser"
 echo "  3. Press Ctrl+Shift+E (Cmd+Shift+E on Mac) to toggle"
 echo ""
-echo "To uninstall, remove these from your profile:"
-echo "  chrome/JS/zen_sidebar.uc.mjs"
-echo "  chrome/JS/zen_sidebar/"
+echo "To uninstall, remove this from your profile:"
+echo "  chrome/JS/zen_sidebar.uc.js"
 echo ""

@@ -50,6 +50,8 @@ echo ""
 
 CHROME="$PROFILE_DIR/chrome"
 
+[ -f "$CHROME/JS/zen_sidebar.uc.js" ] && rm "$CHROME/JS/zen_sidebar.uc.js" && echo "  Removed JS/zen_sidebar.uc.js"
+# Clean up legacy modular install if present
 [ -f "$CHROME/JS/zen_sidebar.uc.mjs" ] && rm "$CHROME/JS/zen_sidebar.uc.mjs" && echo "  Removed JS/zen_sidebar.uc.mjs"
 [ -d "$CHROME/JS/zen_sidebar" ] && rm -rf "$CHROME/JS/zen_sidebar" && echo "  Removed JS/zen_sidebar/"
 
