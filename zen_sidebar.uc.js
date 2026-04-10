@@ -1323,6 +1323,7 @@ class ZenSidebar {
       return;
     }
     this.panelManager.switchTo(panel);
+    this.toolbar.updateUnloadedState(panel); // clear dimmed state after ensureBrowser
     this.expandPanel(panel);
   }
 
@@ -1382,9 +1383,12 @@ class ZenSidebar {
   }
 
   // ── Auto-Hide ──────────────────────────────────────────────────
+  // When enabled, the sidebar toolbar stays as a thin hover zone on the
+  // right edge. Hovering reveals the full sidebar; mousing away hides it
+  // again after the configured delay.
 
   _setupAutoHide() {
-    // Remove old listeners
+    // Clean up previous listeners
     if (this._autoHideEnterHandler) {
       this._sidebarBox.removeEventListener("mouseenter", this._autoHideEnterHandler);
       this._sidebarBox.removeEventListener("mouseleave", this._autoHideLeaveHandler);
@@ -1396,22 +1400,45 @@ class ZenSidebar {
       this._autoHideTimer = null;
     }
 
-    if (!this._autoHide) return;
+    if (!this._autoHide) {
+      this._sidebarBox.removeAttribute("data-auto-hide");
+      return;
+    }
 
-    this._autoHideLeaveHandler = () => {
-      if (!this._panelOpen) return;
-      this._autoHideTimer = setTimeout(() => {
-        if (this._panelOpen) this.collapsePanel();
-      }, this._autoHideDelay);
-    };
+    this._sidebarBox.setAttribute("data-auto-hide", "true");
+
+    // On mouse enter: if there's an active panel, expand it
     this._autoHideEnterHandler = () => {
       if (this._autoHideTimer) {
         clearTimeout(this._autoHideTimer);
         this._autoHideTimer = null;
       }
+      const active = this.panelManager.activePanel;
+      if (active && !this._panelOpen) {
+        this.expandPanel(active);
+      }
     };
-    this._sidebarBox.addEventListener("mouseleave", this._autoHideLeaveHandler);
+
+    // On mouse leave: start a timer to collapse
+    this._autoHideLeaveHandler = () => {
+      if (!this._panelOpen) return;
+      this._autoHideTimer = setTimeout(() => {
+        this._autoHideTimer = null;
+        if (this._panelOpen) {
+          // Collapse panel area but keep sidebar box visible for hover zone
+          this._panelOpen = false;
+          this._panelArea.setAttribute("hidden", "true");
+          this._dragHandle.style.display = "none";
+          this._sidebarBox.removeAttribute("data-panel-open");
+          this._sidebarBox.style.width = "";
+          this._clearResize();
+          // Don't clear active — we want to remember which panel to re-open
+        }
+      }, this._autoHideDelay);
+    };
+
     this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
+    this._sidebarBox.addEventListener("mouseleave", this._autoHideLeaveHandler);
   }
 
   // ── Drag Handle Resize (saves per-panel width) ─────────────────────
