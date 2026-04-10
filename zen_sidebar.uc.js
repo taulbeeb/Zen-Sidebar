@@ -1920,7 +1920,7 @@ const CSS_TEXT = `
   width: 36px; height: 36px; min-width: 36px; min-height: 36px;
   border-radius: 10px; background: transparent;
   border: 2px solid transparent;
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   position: relative;
   transition: background 0.12s, border-color 0.12s;
