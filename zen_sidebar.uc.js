@@ -1424,14 +1424,9 @@ class ZenSidebar {
     this._sidebarBox.setAttribute("data-auto-hide", "true");
     this._sidebarBox.style.display = "none";
 
-    // Trigger strip: hover to reveal
+    // Trigger strip: hover to reveal just the toolbar
     this._autoHideTrigger.addEventListener("mouseenter", () => {
       this._sidebarBox.style.display = "";
-      // If there's an active panel, show it
-      const active = this.panelManager.activePanel;
-      if (active && !this._panelOpen) {
-        this.expandPanel(active);
-      }
     });
 
     // Sidebar: mouse leave to hide after delay
