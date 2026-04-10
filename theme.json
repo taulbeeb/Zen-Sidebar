@@ -1,13 +1,22 @@
 {
-  "id": "zen-sidebar",
-  "name": "Zen Sidebar",
-  "description": "Vivaldi/Edge-style web panel sidebar with drag-to-reorder, per-panel containers, resizable panels, and navigation toolbar.",
-  "author": "taulbeeb",
-  "version": "1.0.0",
-  "homepage": "https://github.com/taulbeeb/zen-sidebar",
-  "readme": "https://raw.githubusercontent.com/taulbeeb/Zen-Sidebar/main/README.md",
-  "tags": ["sidebar", "web panels", "productivity", "Zen Browser"],
-  "style": "chrome.css",
-  "createdAt": "2026-04-07",
-  "updatedAt": "2026-04-10"
+    "id": "zen-sidebar",
+    "name": "Zen Sidebar",
+    "description": "Vivaldi/Edge-style web panel sidebar with drag-to-reorder, per-panel containers, resizable panels, and navigation toolbar.",
+    "scripts": {
+        "zen_sidebar.uc.js": {
+            "include": [
+                "chrome://browser/content/browser.xhtml"
+            ]
+        }
+    },
+    "homepage": "https://github.com/taulbeeb/zen-sidebar",
+    "style": {
+        "chrome": "chrome.css"
+    },
+    "readme": "https://raw.githubusercontent.com/taulbeeb/Zen-Sidebar/main/README.md",
+    "author": "taulbeeb",
+    "version": "1.0.0",
+    "tags": ["sidebar", "web panels", "productivity", "Zen Browser"],
+    "createdAt": "2026-04-07",
+    "updatedAt": "2026-04-10"
 }

@@ -1079,8 +1079,20 @@ const CSS_TEXT = `
   // ═══════════════════════════════════════════════════════════════
 
   function initSidebar() {
+    console.log("[ZenSidebar] Script loaded, readyState:", document.readyState);
     const win = window;
-    if (!win.document || !win.document.getElementById("browser")) return;
+    if (!win.document) {
+      console.warn("[ZenSidebar] No document, aborting.");
+      return;
+    }
+    // Check for main browser chrome elements
+    const containerCandidates = ["browser", "tabbrowser-tabbox", "content-deck"];
+    const found = containerCandidates.find((id) => win.document.getElementById(id));
+    if (!found) {
+      console.warn("[ZenSidebar] No browser chrome container found, aborting. Tried:", containerCandidates.join(", "));
+      return;
+    }
+    console.log("[ZenSidebar] Found container:", found);
     const sidebar = new ZenSidebar(win);
     sidebar.init();
     win.addEventListener("unload", () => sidebar.destroy(), { once: true });
