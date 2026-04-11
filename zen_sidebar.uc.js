@@ -1757,11 +1757,11 @@ class ZenSidebar {
     };
 
     this._autoHideEnterHandler = () => {
+      // Only cancel the hide timer — don't reveal toolbar (trigger strip does that)
       if (this._autoHideTimer) {
         clearTimeout(this._autoHideTimer);
         this._autoHideTimer = null;
       }
-      this._autoShowToolbar();
     };
 
     this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
