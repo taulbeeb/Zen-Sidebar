@@ -18,7 +18,7 @@ class WebPanel {
     zoom = 1.0, muted = false, loadOnStartup = true, unloadOnClose = false,
     autoReloadInterval = 0, keybinding = "",
     dynamicTitle = true, dynamicFavicon = true, customTitle = "", customIcon = "",
-    cssSelector = "", tooltipMode = "title" }) {
+    cssSelector = "", tooltipMode = "title", unloadTimer = 0 }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
@@ -41,8 +41,10 @@ class WebPanel {
     this.customIcon = customIcon;
     this.cssSelector = cssSelector;
     this.tooltipMode = tooltipMode;
+    this.unloadTimer = unloadTimer; // minutes before inactive panel is unloaded (0 = never)
     this._browser = null;
     this._loaded = false;
+    this._unloadTimerId = null;
   }
 
   createBrowser() {
@@ -275,6 +277,7 @@ class PanelManager {
       unloadOnClose: opts.unloadOnClose || false,
       customTitle: opts.customTitle || "",
       customIcon: opts.customIcon || "",
+      unloadTimer: opts.unloadTimer || 0,
     });
     this.panels.push(panel);
     panel.createBrowser();
@@ -289,6 +292,7 @@ class PanelManager {
     if (idx === -1) return;
 
     this._stopAutoReload(panel);
+    this._stopUnloadTimer(panel);
     panel.destroy();
     this.panels.splice(idx, 1);
     this.sidebar.toolbar.removeIcon(panel);
@@ -334,7 +338,11 @@ class PanelManager {
   switchTo(panel) {
     if (this._activePanel && this._activePanel !== panel) {
       this._activePanel.hide();
+      // Start unload timer for the panel being deactivated
+      this._startUnloadTimer(this._activePanel);
     }
+    // Stop unload timer for the panel becoming active
+    this._stopUnloadTimer(panel);
     this._activePanel = panel;
     panel.show();
     this.sidebar.toolbar.setActive(panel);
@@ -361,6 +369,7 @@ class PanelManager {
       customIcon: p.customIcon || "",
       cssSelector: p.cssSelector || "",
       tooltipMode: p.tooltipMode || "title",
+      unloadTimer: p.unloadTimer || 0,
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     Services.prefs.setStringPref(PREF_PANELS, JSON.stringify({ panels: data, activeId }));
@@ -393,6 +402,7 @@ class PanelManager {
         customIcon: p.customIcon || "",
         cssSelector: p.cssSelector || "",
         tooltipMode: p.tooltipMode || "title",
+        unloadTimer: p.unloadTimer || 0,
       });
       this.panels.push(panel);
       if (panel.loadOnStartup) {
@@ -412,10 +422,13 @@ class PanelManager {
       }
     }
 
-    // Start auto-reload timers
+    // Start auto-reload timers and unload timers for inactive panels
     for (const panel of this.panels) {
       if (panel.autoReloadInterval > 0 && panel.isLoaded) {
         this._startAutoReload(panel);
+      }
+      if (panel.unloadTimer > 0 && panel.isLoaded && panel !== this._activePanel) {
+        this._startUnloadTimer(panel);
       }
     }
   }
@@ -433,6 +446,28 @@ class PanelManager {
     if (panel._autoReloadTimerId) {
       clearInterval(panel._autoReloadTimerId);
       panel._autoReloadTimerId = null;
+    }
+  }
+
+  // ── Unload Timer (inactive panel memory reclaim) ─────────────────
+
+  _startUnloadTimer(panel) {
+    this._stopUnloadTimer(panel);
+    if (panel.unloadTimer > 0 && panel.isLoaded) {
+      panel._unloadTimerId = setTimeout(() => {
+        panel._unloadTimerId = null;
+        if (panel.isLoaded && this._activePanel !== panel) {
+          panel.unload();
+          this.sidebar.toolbar.updateUnloadedState(panel);
+        }
+      }, panel.unloadTimer * 60 * 1000);
+    }
+  }
+
+  _stopUnloadTimer(panel) {
+    if (panel._unloadTimerId) {
+      clearTimeout(panel._unloadTimerId);
+      panel._unloadTimerId = null;
     }
   }
 
@@ -1029,6 +1064,20 @@ class SettingsDialog {
     if (p.unloadOnClose) unloadCloseCheck.setAttribute("checked", "true");
     content.appendChild(unloadCloseCheck);
 
+    // Unload timer
+    const unloadTimerSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const unloadTimerPopup = xul("menupopup");
+    const unloadTimerOpts = [
+      [0, "Never"], [5, "5 minutes"], [10, "10 minutes"],
+      [15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"],
+    ];
+    for (const [val, text] of unloadTimerOpts) {
+      unloadTimerPopup.appendChild(xul("menuitem", { value: String(val), label: text }));
+    }
+    unloadTimerSelect.appendChild(unloadTimerPopup);
+    unloadTimerSelect.value = String(p.unloadTimer || 0);
+    content.appendChild(row(label("Unload After Inactive"), unloadTimerSelect));
+
     // Title/Favicon overrides
     const customTitleInput = html("input", {
       type: "text", placeholder: "Auto (from page)",
@@ -1068,6 +1117,7 @@ class SettingsDialog {
         tooltipMode: tooltipSelect.value,
         loadOnStartup: loadStartupCheck.checked,
         unloadOnClose: unloadCloseCheck.checked,
+        unloadTimer: parseInt(unloadTimerSelect.value, 10) || 0,
         customTitle: customTitleInput.value.trim(),
         customIcon: customIconInput.value.trim(),
       };
@@ -1082,11 +1132,17 @@ class SettingsDialog {
         panel.tooltipMode = opts.tooltipMode;
         panel.loadOnStartup = opts.loadOnStartup;
         panel.unloadOnClose = opts.unloadOnClose;
+        panel.unloadTimer = opts.unloadTimer;
         panel.customTitle = opts.customTitle;
         panel.customIcon = opts.customIcon;
         if (opts.customTitle) panel.label = opts.customTitle;
         if (opts.customIcon) panel.icon = opts.customIcon;
         this.sidebar.panelManager.editPanel(panel, finalURL, null, null, userContextId);
+        // Restart unload timer if the setting changed
+        this.sidebar.panelManager._stopUnloadTimer(panel);
+        if (panel !== this.sidebar.panelManager.activePanel) {
+          this.sidebar.panelManager._startUnloadTimer(panel);
+        }
       } else {
         this.sidebar.panelManager.addPanel(finalURL, opts.customTitle || null, opts.customIcon || null, userContextId, opts);
       }
