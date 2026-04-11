@@ -1497,35 +1497,33 @@ class ZenSidebar {
 
     const targetWidth = (panel?.width || this._getWidth()) + this._getToolbarWidth();
 
-    // Suppress transitions while setting up the starting state
-    this._sidebarBox.style.transition = "none";
+    // Set up DOM state immediately (no transition)
+    this._sidebarBox.classList.add("zen-sidebar-no-transition");
     this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
     this._panelArea.removeAttribute("hidden");
     this._panelArea.removeAttribute("data-collapsed");
     this._dragHandle.style.display = "";
     this._sidebarBox.setAttribute("data-panel-open", "true");
-    if (!this._sidebarBox.style.width || parseInt(this._sidebarBox.style.width, 10) < this._getToolbarWidth()) {
-      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
-    }
-    this._sidebarBox.getBoundingClientRect(); // force reflow to lock starting state
-    // Re-enable transitions and animate to target
-    this._sidebarBox.style.transition = "";
-    this._sidebarBox.style.width = `${targetWidth}px`;
-
-    if (this._animations) {
-      this._isAnimating = true;
-      const onEnd = (e) => {
-        if (e.propertyName !== "width" || e.target !== this._sidebarBox) return;
-        this._sidebarBox.removeEventListener("transitionend", onEnd);
-        this._isAnimating = false;
-      };
-      this._sidebarBox.addEventListener("transitionend", onEnd);
-      setTimeout(() => { this._isAnimating = false; this._sidebarBox.removeEventListener("transitionend", onEnd); }, ANIM_DURATION + 50);
-    }
-
     this._applyMode();
     this.updateNavBarVisibility();
     this._updateZoomLabel();
+
+    if (this._animations) {
+      this._isAnimating = true;
+      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
+      // Double-rAF ensures the starting state is painted before transitioning
+      this.win.requestAnimationFrame(() => {
+        this.win.requestAnimationFrame(() => {
+          this._sidebarBox.classList.remove("zen-sidebar-no-transition");
+          this._sidebarBox.style.width = `${targetWidth}px`;
+          setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
+        });
+      });
+    } else {
+      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
+      this._sidebarBox.style.width = `${targetWidth}px`;
+    }
+
     if (panel) panel.load();
   }
 
@@ -1570,6 +1568,7 @@ class ZenSidebar {
   _finishCollapse() {
     if (!this._isAnimating) return; // already finished (safety timeout vs transitionend race)
     this._isAnimating = false;
+    this._sidebarBox.classList.add("zen-sidebar-no-transition");
     this._panelArea.setAttribute("data-collapsed", "true");
     this._dragHandle.style.display = "none";
     this._sidebarBox.style.width = "";
@@ -1577,6 +1576,8 @@ class ZenSidebar {
     if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
       this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
     }
+    this._sidebarBox.getBoundingClientRect();
+    this._sidebarBox.classList.remove("zen-sidebar-no-transition");
   }
 
   switchToPanel(panel) {
@@ -2018,6 +2019,8 @@ const CSS_TEXT = `
 /* Disable transitions during drag resize */
 #zen-sidebar-box.zen-sidebar-dragging,
 #zen-sidebar-box.zen-sidebar-dragging * { transition: none !important; }
+#zen-sidebar-box.zen-sidebar-no-transition,
+#zen-sidebar-box.zen-sidebar-no-transition * { transition: none !important; }
 
 /* ── Drag Handle (flex child, left of panel area) ──────────── */
 #zen-sidebar-drag-handle {
