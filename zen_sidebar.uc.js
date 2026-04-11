@@ -190,15 +190,21 @@ class WebPanel {
         this.sidebar.toolbar.updateIcon(this);
       }
     };
-    // Audio: observe the "soundplaying" attribute Firefox sets on remote browsers
-    this._audioObserver = new MutationObserver(() => {
-      const playing = this._browser.hasAttribute("soundplaying");
+    // Audio detection: try both MutationObserver (soundplaying attr) and DOM events
+    this._updateAudio = (playing) => {
       if (playing !== this._audioPlaying) {
         this._audioPlaying = playing;
         this.sidebar.toolbar.updateAudioState(this);
       }
+    };
+    this._audioObserver = new MutationObserver(() => {
+      this._updateAudio(this._browser.hasAttribute("soundplaying"));
     });
     this._audioObserver.observe(this._browser, { attributes: true, attributeFilter: ["soundplaying"] });
+    this._onAudioStart = () => this._updateAudio(true);
+    this._onAudioStop = () => this._updateAudio(false);
+    this._browser.addEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    this._browser.addEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
     this._audioPlaying = this._browser.hasAttribute("soundplaying");
 
     this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
@@ -209,6 +215,8 @@ class WebPanel {
     if (!this._browser) return;
     if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
     if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
+    if (this._onAudioStart) this._browser.removeEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    if (this._onAudioStop) this._browser.removeEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
     if (this._audioObserver) { this._audioObserver.disconnect(); this._audioObserver = null; }
   }
 
@@ -1495,6 +1503,8 @@ class ZenSidebar {
     this._panelArea.removeAttribute("data-collapsed");
     this._dragHandle.style.display = "";
     this._sidebarBox.setAttribute("data-panel-open", "true");
+    // If auto-hide collapsed the box, uncollapse it for the panel
+    this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
 
     const targetWidth = (panel?.width || this._getWidth()) + this._getToolbarWidth();
 
@@ -1550,6 +1560,10 @@ class ZenSidebar {
       this._dragHandle.style.display = "none";
       this._sidebarBox.style.width = "";
       this._clearResize();
+      // If auto-hide is active and toolbar is hidden, collapse the box too
+      if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
+        this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
+      }
     }
 
     this.toolbar.clearActive();
@@ -1569,6 +1583,10 @@ class ZenSidebar {
     this._panelArea.setAttribute("data-collapsed", "true");
     this._dragHandle.style.display = "none";
     this._sidebarBox.style.width = "";
+    // If auto-hide is active and toolbar is hidden, collapse the box too
+    if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
+      this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
+    }
   }
 
   switchToPanel(panel) {
@@ -1664,8 +1682,23 @@ class ZenSidebar {
   // ── Auto-Hide ──────────────────────────────────────────────────
   // When enabled, the toolbar auto-hides after the mouse leaves.
   // If a panel is open, the panel stays visible — only the toolbar
-  // strip slides away. Hovering the trigger strip reveals it again.
+  // strip slides away. If no panel is open, the entire sidebar box
+  // collapses so page content fills the full width.
+  // Hovering the right-edge trigger strip reveals the toolbar.
   // Settings dialogs prevent auto-hide while open.
+
+  _autoHideToolbar() {
+    this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
+    // If no panel is open, collapse the sidebar box entirely
+    if (!this._panelOpen) {
+      this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
+    }
+  }
+
+  _autoShowToolbar() {
+    this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
+    this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
+  }
 
   _setupAutoHide() {
     // Clean up previous
@@ -1686,6 +1719,7 @@ class ZenSidebar {
 
     if (!this._autoHide) {
       this._sidebarBox.removeAttribute("data-auto-hide");
+      this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
       this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
       this._sidebarBox.style.display = "";
       return;
@@ -1702,12 +1736,12 @@ class ZenSidebar {
 
     this._sidebarBox.setAttribute("data-auto-hide", "true");
     this._sidebarBox.style.display = "";
-    // Start with toolbar hidden
-    this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
+    // Start hidden
+    this._autoHideToolbar();
 
     // Trigger strip: hover to reveal toolbar
     this._autoHideTrigger.addEventListener("mouseenter", () => {
-      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
+      this._autoShowToolbar();
     });
 
     // Sidebar: mouse leave to hide toolbar after delay
@@ -1717,10 +1751,8 @@ class ZenSidebar {
       if (this._autoHideTimer) clearTimeout(this._autoHideTimer);
       this._autoHideTimer = setTimeout(() => {
         this._autoHideTimer = null;
-        // Don't hide if settings opened during the delay
         if (this.settingsDialog._editPanel || this.settingsDialog._settingsPanel) return;
-        // Only hide the toolbar — leave the panel open if it's open
-        this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
+        this._autoHideToolbar();
       }, this._autoHideDelay);
     };
 
@@ -1729,8 +1761,7 @@ class ZenSidebar {
         clearTimeout(this._autoHideTimer);
         this._autoHideTimer = null;
       }
-      // Reveal toolbar on enter
-      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
+      this._autoShowToolbar();
     };
 
     this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
@@ -2245,6 +2276,11 @@ const CSS_TEXT = `
   opacity: 0; pointer-events: none;
   width: 0 !important; min-width: 0 !important; max-width: 0 !important;
   padding: 0 !important; border-width: 0 !important;
+}
+/* Collapse the entire sidebar box when toolbar is hidden and no panel is open */
+#zen-sidebar-box[data-auto-hide-collapsed] {
+  min-width: 0 !important; width: 0 !important;
+  overflow: hidden;
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
