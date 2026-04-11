@@ -1499,25 +1499,25 @@ class ZenSidebar {
     if (this._isAnimating) return;
     this._panelOpen = true;
 
-    this._panelArea.removeAttribute("hidden");
-    this._panelArea.removeAttribute("data-collapsed");
-    this._dragHandle.style.display = "";
-    this._sidebarBox.setAttribute("data-panel-open", "true");
-    // If auto-hide collapsed the box, uncollapse it for the panel
-    this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
-
     const targetWidth = (panel?.width || this._getWidth()) + this._getToolbarWidth();
 
     if (this._animations) {
       this._isAnimating = true;
-      // Set starting width so the CSS transition has an origin
-      if (!this._sidebarBox.style.width) {
+      // Suppress transitions while setting up the starting state
+      this._sidebarBox.style.transition = "none";
+      this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
+      this._panelArea.removeAttribute("hidden");
+      this._panelArea.removeAttribute("data-collapsed");
+      this._dragHandle.style.display = "";
+      this._sidebarBox.setAttribute("data-panel-open", "true");
+      this._panelArea.style.opacity = "0";
+      if (!this._sidebarBox.style.width || parseInt(this._sidebarBox.style.width, 10) < this._getToolbarWidth()) {
         this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       }
-      this._panelArea.style.opacity = "0";
-      this._sidebarBox.getBoundingClientRect(); // force reflow
+      this._sidebarBox.getBoundingClientRect(); // force reflow to lock starting state
+      // Re-enable transitions and animate to target
+      this._sidebarBox.style.transition = "";
       this._sidebarBox.style.width = `${targetWidth}px`;
-      // Fade in content once the width starts expanding
       this.win.requestAnimationFrame(() => { this._panelArea.style.opacity = ""; });
 
       const onEnd = (e) => {
@@ -1528,6 +1528,11 @@ class ZenSidebar {
       this._sidebarBox.addEventListener("transitionend", onEnd);
       setTimeout(() => { this._isAnimating = false; this._sidebarBox.removeEventListener("transitionend", onEnd); }, ANIM_DURATION + 50);
     } else {
+      this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
+      this._panelArea.removeAttribute("hidden");
+      this._panelArea.removeAttribute("data-collapsed");
+      this._dragHandle.style.display = "";
+      this._sidebarBox.setAttribute("data-panel-open", "true");
       this._sidebarBox.style.width = `${targetWidth}px`;
     }
 
