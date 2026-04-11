@@ -2232,12 +2232,19 @@ const CSS_TEXT = `
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
 
 /* ── Auto-Hide Animation ─────────────────────────────────── */
-#zen-sidebar-toolbar {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+#zen-sidebar-box[data-auto-hide] #zen-sidebar-toolbar {
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              min-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              max-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s ease,
+              border-width 0.2s ease;
+  overflow: hidden;
 }
 #zen-sidebar-toolbar[data-auto-hide-hidden] {
-  opacity: 0; transform: translateX(20px); pointer-events: none;
-  width: 0; min-width: 0; max-width: 0; padding: 0; overflow: hidden; border: none;
+  opacity: 0; pointer-events: none;
+  width: 0 !important; min-width: 0 !important; max-width: 0 !important;
+  padding: 0 !important; border-width: 0 !important;
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
