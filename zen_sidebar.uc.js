@@ -190,27 +190,26 @@ class WebPanel {
         this.sidebar.toolbar.updateIcon(this);
       }
     };
-    this._onAudioStart = () => {
-      this._audioPlaying = true;
-      this.sidebar.toolbar.updateAudioState(this);
-    };
-    this._onAudioStop = () => {
-      this._audioPlaying = false;
-      this.sidebar.toolbar.updateAudioState(this);
-    };
+    // Audio: observe the "soundplaying" attribute Firefox sets on remote browsers
+    this._audioObserver = new MutationObserver(() => {
+      const playing = this._browser.hasAttribute("soundplaying");
+      if (playing !== this._audioPlaying) {
+        this._audioPlaying = playing;
+        this.sidebar.toolbar.updateAudioState(this);
+      }
+    });
+    this._audioObserver.observe(this._browser, { attributes: true, attributeFilter: ["soundplaying"] });
+    this._audioPlaying = this._browser.hasAttribute("soundplaying");
 
     this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
     this._browser.addEventListener("DOMLinkAdded", this._onLinkAdded);
-    this._browser.addEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
-    this._browser.addEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
   }
 
   detachBrowserListeners() {
     if (!this._browser) return;
     if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
     if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
-    if (this._onAudioStart) this._browser.removeEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
-    if (this._onAudioStop) this._browser.removeEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
+    if (this._audioObserver) { this._audioObserver.disconnect(); this._audioObserver = null; }
   }
 
   _parseBadge(title) {
@@ -885,9 +884,13 @@ class Toolbar {
   _applyContainerColor(btn, panel) {
     if (panel.userContextId > 0) {
       const match = this.sidebar.panelManager.getContainers().find((c) => c.userContextId === panel.userContextId);
-      if (match?.color) btn.setAttribute("data-container-color", match.color);
+      if (match?.color) {
+        btn.setAttribute("data-container-color", match.color);
+        btn.style.setProperty("--container-color", CONTAINER_COLORS[match.color] || "transparent");
+      }
     } else {
       btn.removeAttribute("data-container-color");
+      btn.style.removeProperty("--container-color");
     }
   }
 
@@ -1152,7 +1155,7 @@ class SettingsDialog {
     content.appendChild(btnRow);
 
     popup.appendChild(content);
-    popup.addEventListener("popuphidden", () => { popup.remove(); this._editPanel = null; });
+    popup.addEventListener("popuphidden", (e) => { if (e.target !== popup) return; popup.remove(); this._editPanel = null; });
 
     const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
     popupSet.appendChild(popup);
@@ -1213,17 +1216,25 @@ class SettingsDialog {
     content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
 
     // Padding
-    const paddingInput = html("input", {
-      type: "number", min: "0", max: "24", step: "2",
-      value: String(s._padding), class: "zen-settings-input zen-settings-input-short",
-    });
-    content.appendChild(row(label("Panel Padding"), paddingInput));
+    // Sidebar size
+    const sizeSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const sizePopup = xul("menupopup");
+    for (const [val, lbl] of [["smallest","Smallest"],["small","Small"],["medium","Medium"],["large","Large"],["largest","Largest"]]) {
+      sizePopup.appendChild(xul("menuitem", { value: val, label: lbl }));
+    }
+    sizeSelect.appendChild(sizePopup);
+    sizeSelect.value = s._sidebarSize;
+    content.appendChild(row(label("Sidebar Size"), sizeSelect));
 
-    // Container indicator position
+    // Container indicator style
     const indicatorSelect = xul("menulist", { class: "zen-settings-menulist" });
     const ciPopup = xul("menupopup");
-    for (const pos of ["bottom-right", "bottom-left", "top-right", "top-left", "left", "right", "top", "bottom"]) {
-      ciPopup.appendChild(xul("menuitem", { value: pos, label: pos }));
+    for (const [val, lbl] of [
+      ["dot", "Dot"], ["outline", "Outline"], ["outline-left", "Outline Left"],
+      ["outline-top", "Outline Top"], ["outline-bottom", "Outline Bottom"],
+      ["outline-right", "Outline Right"], ["none", "None"],
+    ]) {
+      ciPopup.appendChild(xul("menuitem", { value: val, label: lbl }));
     }
     indicatorSelect.appendChild(ciPopup);
     indicatorSelect.value = s._containerIndicatorPosition;
@@ -1260,7 +1271,7 @@ class SettingsDialog {
       s._autoHide = autoHideCheck.checked;
       s._autoHideDelay = parseInt(autoHideDelayInput.value, 10) || 300;
       s._autoHideMode = autoHideModeSelect.value;
-      s._padding = parseInt(paddingInput.value, 10) || 8;
+      s._sidebarSize = sizeSelect.value;
       s._containerIndicatorPosition = indicatorSelect.value;
       s._animations = animCheck.checked;
       s._autoHideNavButtons = navBtnCheck.checked;
@@ -1273,7 +1284,7 @@ class SettingsDialog {
     content.appendChild(btnRow);
 
     popup.appendChild(content);
-    popup.addEventListener("popuphidden", () => { popup.remove(); this._settingsPanel = null; });
+    popup.addEventListener("popuphidden", (e) => { if (e.target !== popup) return; popup.remove(); this._settingsPanel = null; });
 
     const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
     popupSet.appendChild(popup);
@@ -1305,6 +1316,17 @@ const PREF_TOOLTIP_DEFAULT = "zen.sidebar.tooltipDefault";
 const SIDEBAR_DEFAULT_WIDTH = 400;
 const TOOLBAR_WIDTH = 48;
 const ANIM_DURATION = 200; // ms – sidebar open/close transition time
+const SIDEBAR_SIZES = {
+  smallest: { toolbar: 36, icon: 26, img: 14, gap: 2, pad: 4, iconRadius: 7 },
+  small:    { toolbar: 42, icon: 30, img: 16, gap: 3, pad: 6, iconRadius: 8 },
+  medium:   { toolbar: 48, icon: 36, img: 20, gap: 4, pad: 8, iconRadius: 10 },
+  large:    { toolbar: 56, icon: 42, img: 24, gap: 5, pad: 8, iconRadius: 12 },
+  largest:  { toolbar: 64, icon: 48, img: 28, gap: 6, pad: 8, iconRadius: 14 },
+};
+const CONTAINER_COLORS = {
+  blue: "#37adff", turquoise: "#00c79a", green: "#51cd00", yellow: "#ffcb00",
+  orange: "#ff9f00", red: "#ff613d", pink: "#ff4bda", purple: "#af51f5",
+};
 
 class ZenSidebar {
   constructor(win) {
@@ -1319,8 +1341,8 @@ class ZenSidebar {
     this._autoHide = false;
     this._autoHideDelay = 300;
     this._autoHideMode = "slide";
-    this._padding = 8;
-    this._containerIndicatorPosition = "bottom-right";
+    this._sidebarSize = "medium";
+    this._containerIndicatorPosition = "dot";
     this._animations = true;
     this._autoHideNavButtons = false;
     this._tooltipDefault = "title";
@@ -1474,13 +1496,13 @@ class ZenSidebar {
     this._dragHandle.style.display = "";
     this._sidebarBox.setAttribute("data-panel-open", "true");
 
-    const targetWidth = (panel?.width || this._getWidth()) + TOOLBAR_WIDTH;
+    const targetWidth = (panel?.width || this._getWidth()) + this._getToolbarWidth();
 
     if (this._animations) {
       this._isAnimating = true;
       // Set starting width so the CSS transition has an origin
       if (!this._sidebarBox.style.width) {
-        this._sidebarBox.style.width = `${TOOLBAR_WIDTH}px`;
+        this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       }
       this._panelArea.style.opacity = "0";
       this._sidebarBox.getBoundingClientRect(); // force reflow
@@ -1513,7 +1535,7 @@ class ZenSidebar {
     if (this._animations) {
       this._isAnimating = true;
       this._panelArea.style.opacity = "0"; // fade out content
-      this._sidebarBox.style.width = `${TOOLBAR_WIDTH}px`; // animate width down
+      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`; // animate width down
       this._clearResize();
 
       const onEnd = (e) => {
@@ -1600,7 +1622,7 @@ class ZenSidebar {
 
   _pushContent() {
     const appcontent = this.doc.getElementById("appcontent");
-    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + TOOLBAR_WIDTH;
+    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + this._getToolbarWidth();
     if (appcontent) appcontent.style.marginRight = `${w}px`;
   }
 
@@ -1620,7 +1642,14 @@ class ZenSidebar {
 
   _applyVisualPrefs() {
     if (!this._sidebarBox) return;
-    this._sidebarBox.style.setProperty("--zen-sidebar-padding", this._padding + "px");
+    // Sidebar size
+    const sz = SIDEBAR_SIZES[this._sidebarSize] || SIDEBAR_SIZES.medium;
+    this._sidebarBox.style.setProperty("--zen-toolbar-width", sz.toolbar + "px");
+    this._sidebarBox.style.setProperty("--zen-icon-size", sz.icon + "px");
+    this._sidebarBox.style.setProperty("--zen-icon-img", sz.img + "px");
+    this._sidebarBox.style.setProperty("--zen-icon-gap", sz.gap + "px");
+    this._sidebarBox.style.setProperty("--zen-toolbar-pad", sz.pad + "px");
+    this._sidebarBox.style.setProperty("--zen-icon-radius", sz.iconRadius + "px");
     this._sidebarBox.setAttribute("data-indicator-pos", this._containerIndicatorPosition);
     if (!this._animations) {
       this._sidebarBox.setAttribute("data-no-animations", "true");
@@ -1746,7 +1775,7 @@ class ZenSidebar {
       pendingFrame = this.win.requestAnimationFrame(() => {
         pendingFrame = null;
         const delta = startX - e.clientX;
-        const totalW = Math.max(200 + TOOLBAR_WIDTH, startWidth + delta);
+        const totalW = Math.max(200 + this._getToolbarWidth(), startWidth + delta);
         this._sidebarBox.style.width = `${totalW}px`;
         if (this._mode === "resize") this._pushContent();
       });
@@ -1762,7 +1791,7 @@ class ZenSidebar {
       if (appcontent) appcontent.style.transition = "";
       // Save to active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
-      const panelW = totalW - TOOLBAR_WIDTH;
+      const panelW = totalW - this._getToolbarWidth();
       const active = this.panelManager.activePanel;
       if (active && panelW > 0) {
         active.width = panelW;
@@ -1910,8 +1939,11 @@ class ZenSidebar {
     try { this._autoHide = Services.prefs.getBoolPref(PREF_AUTO_HIDE, false); } catch { this._autoHide = false; }
     try { this._autoHideDelay = Services.prefs.getIntPref(PREF_AUTO_HIDE_DELAY, 300); } catch { this._autoHideDelay = 300; }
     try { this._autoHideMode = Services.prefs.getStringPref(PREF_AUTO_HIDE_MODE, "slide") || "slide"; } catch { this._autoHideMode = "slide"; }
-    try { this._padding = Services.prefs.getIntPref(PREF_PADDING, 8); } catch { this._padding = 8; }
-    try { this._containerIndicatorPosition = Services.prefs.getStringPref(PREF_CONTAINER_INDICATOR, "bottom-right") || "bottom-right"; } catch { this._containerIndicatorPosition = "bottom-right"; }
+    try {
+      const rawPad = Services.prefs.getStringPref(PREF_PADDING, "medium");
+      this._sidebarSize = SIDEBAR_SIZES[rawPad] ? rawPad : "medium";
+    } catch { this._sidebarSize = "medium"; }
+    try { this._containerIndicatorPosition = Services.prefs.getStringPref(PREF_CONTAINER_INDICATOR, "dot") || "dot"; } catch { this._containerIndicatorPosition = "dot"; }
     try { this._animations = Services.prefs.getBoolPref(PREF_ANIMATIONS, true); } catch { this._animations = true; }
     try { this._autoHideNavButtons = Services.prefs.getBoolPref(PREF_AUTO_HIDE_NAV, false); } catch { this._autoHideNavButtons = false; }
     try { this._tooltipDefault = Services.prefs.getStringPref(PREF_TOOLTIP_DEFAULT, "title") || "title"; } catch { this._tooltipDefault = "title"; }
@@ -1922,7 +1954,7 @@ class ZenSidebar {
     Services.prefs.setBoolPref(PREF_AUTO_HIDE, this._autoHide);
     Services.prefs.setIntPref(PREF_AUTO_HIDE_DELAY, this._autoHideDelay);
     Services.prefs.setStringPref(PREF_AUTO_HIDE_MODE, this._autoHideMode);
-    Services.prefs.setIntPref(PREF_PADDING, this._padding);
+    Services.prefs.setStringPref(PREF_PADDING, this._sidebarSize);
     Services.prefs.setStringPref(PREF_CONTAINER_INDICATOR, this._containerIndicatorPosition);
     Services.prefs.setBoolPref(PREF_ANIMATIONS, this._animations);
     Services.prefs.setBoolPref(PREF_AUTO_HIDE_NAV, this._autoHideNavButtons);
@@ -1933,6 +1965,10 @@ class ZenSidebar {
   _getWidth() {
     try { return Services.prefs.getIntPref(PREF_WIDTH, SIDEBAR_DEFAULT_WIDTH); }
     catch { return SIDEBAR_DEFAULT_WIDTH; }
+  }
+
+  _getToolbarWidth() {
+    return (SIDEBAR_SIZES[this._sidebarSize] || SIDEBAR_SIZES.medium).toolbar;
   }
 
   _restorePanels() { this.panelManager.restore(); }
@@ -1961,7 +1997,7 @@ const CSS_TEXT = `
   font-family: system-ui, -apple-system, sans-serif;
   overflow: visible;
   position: relative;
-  min-width: ${TOOLBAR_WIDTH}px;
+  min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
@@ -2061,16 +2097,18 @@ const CSS_TEXT = `
 /* ── Icon Toolbar (always visible, fixed width) ───────────── */
 #zen-sidebar-toolbar {
   display: flex; flex-direction: column;
-  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; max-width: ${TOOLBAR_WIDTH}px;
+  width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
+  min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
+  max-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   flex-shrink: 0;
   background: rgba(0, 0, 0, 0.1);
-  padding: 8px 0;
+  padding: var(--zen-toolbar-pad, 8px) 0;
   box-sizing: border-box;
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-toolbar-icons {
   display: flex; flex-direction: column;
-  align-items: center; gap: 4px;
+  align-items: center; gap: var(--zen-icon-gap, 4px);
   overflow-y: auto; overflow-x: hidden;
   padding: 0; flex: 1;
 }
@@ -2078,8 +2116,9 @@ const CSS_TEXT = `
 /* ── Panel Icons ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon {
   appearance: none;
-  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
-  border-radius: 10px; background: transparent;
+  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
+  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
+  border-radius: var(--zen-icon-radius, 10px); background: transparent;
   border: 2px solid transparent;
   cursor: default;
   padding: 0;
@@ -2089,7 +2128,7 @@ const CSS_TEXT = `
   -moz-box-pack: center; -moz-box-align: center;
 }
 .zen-sidebar-panel-icon .toolbarbutton-icon {
-  width: 20px; height: 20px;
+  width: var(--zen-icon-img, 20px); height: var(--zen-icon-img, 20px);
 }
 .zen-sidebar-panel-icon .toolbarbutton-text { display: none; }
 .zen-sidebar-panel-icon:hover {
@@ -2100,34 +2139,34 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 
-/* Container color dot — default bottom-right */
+/* Container indicator — dot (default) */
 .zen-sidebar-panel-icon[data-container-color]::after {
-  content: ""; position: absolute; bottom: 0px; right: 0px;
+  content: ""; position: absolute; bottom: 0; right: 0;
   width: 8px; height: 8px; border-radius: 50%;
+  background: var(--container-color);
   border: 1.5px solid var(--toolbar-bgcolor, #1c1b22);
 }
-/* Container indicator position variants */
-[data-indicator-pos="bottom-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: 0; right: auto; left: 0; }
-[data-indicator-pos="top-right"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: 0; }
-[data-indicator-pos="top-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: auto; left: 0; }
-[data-indicator-pos="left"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); left: -2px; right: auto; bottom: auto; }
-[data-indicator-pos="right"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); right: -2px; left: auto; bottom: auto; }
-[data-indicator-pos="top"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; top: -2px; left: 50%; transform: translateX(-50%); right: auto; bottom: auto; }
-[data-indicator-pos="bottom"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; bottom: -2px; left: 50%; transform: translateX(-50%); right: auto; top: auto; }
-.zen-sidebar-panel-icon[data-container-color="blue"]::after { background: #37adff; }
-.zen-sidebar-panel-icon[data-container-color="turquoise"]::after { background: #00c79a; }
-.zen-sidebar-panel-icon[data-container-color="green"]::after { background: #51cd00; }
-.zen-sidebar-panel-icon[data-container-color="yellow"]::after { background: #ffcb00; }
-.zen-sidebar-panel-icon[data-container-color="orange"]::after { background: #ff9f00; }
-.zen-sidebar-panel-icon[data-container-color="red"]::after { background: #ff613d; }
-.zen-sidebar-panel-icon[data-container-color="pink"]::after { background: #ff4bda; }
-.zen-sidebar-panel-icon[data-container-color="purple"]::after { background: #af51f5; }
+/* Container indicator — outline (full border) */
+[data-indicator-pos="outline"] .zen-sidebar-panel-icon[data-container-color] { border-color: var(--container-color); }
+[data-indicator-pos="outline"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+/* Container indicator — outline sides */
+[data-indicator-pos="outline-left"] .zen-sidebar-panel-icon[data-container-color] { border-left-color: var(--container-color); }
+[data-indicator-pos="outline-left"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+[data-indicator-pos="outline-top"] .zen-sidebar-panel-icon[data-container-color] { border-top-color: var(--container-color); }
+[data-indicator-pos="outline-top"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+[data-indicator-pos="outline-bottom"] .zen-sidebar-panel-icon[data-container-color] { border-bottom-color: var(--container-color); }
+[data-indicator-pos="outline-bottom"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+[data-indicator-pos="outline-right"] .zen-sidebar-panel-icon[data-container-color] { border-right-color: var(--container-color); }
+[data-indicator-pos="outline-right"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+/* Container indicator — none */
+[data-indicator-pos="none"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
 
 /* ── Add Button ────────────────────────────────────────────── */
 #zen-sidebar-add-btn {
   appearance: none;
-  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
-  border-radius: 10px; background: transparent;
+  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
+  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
+  border-radius: var(--zen-icon-radius, 10px); background: transparent;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
@@ -2197,8 +2236,8 @@ const CSS_TEXT = `
 }
 
 .zen-sidebar-drag-placeholder {
-  width: 36px; min-height: 36px;
-  border-radius: 10px;
+  width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
+  border-radius: var(--zen-icon-radius, 10px);
   margin: 0 auto;
   background: var(--zen-primary-color, AccentColor);
   opacity: 0.2;
@@ -2226,8 +2265,9 @@ const CSS_TEXT = `
 /* ── Settings Gear Button ─────────────────────────────────── */
 #zen-sidebar-settings-btn {
   appearance: none;
-  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
-  border-radius: 10px; background: transparent; border: none;
+  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
+  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
+  border-radius: var(--zen-icon-radius, 10px); background: transparent; border: none;
   cursor: pointer; padding: 0; opacity: 0.4;
   margin: 8px auto; flex-shrink: 0;
   transition: opacity 0.15s, background 0.15s;
