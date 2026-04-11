@@ -190,22 +190,20 @@ class WebPanel {
         this.sidebar.toolbar.updateIcon(this);
       }
     };
-    // Audio detection: try both MutationObserver (soundplaying attr) and DOM events
-    this._updateAudio = (playing) => {
-      if (playing !== this._audioPlaying) {
-        this._audioPlaying = playing;
-        this.sidebar.toolbar.updateAudioState(this);
-      }
-    };
-    this._audioObserver = new MutationObserver(() => {
-      this._updateAudio(this._browser.hasAttribute("soundplaying"));
-    });
-    this._audioObserver.observe(this._browser, { attributes: true, attributeFilter: ["soundplaying"] });
-    this._onAudioStart = () => this._updateAudio(true);
-    this._onAudioStop = () => this._updateAudio(false);
-    this._browser.addEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
-    this._browser.addEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
-    this._audioPlaying = this._browser.hasAttribute("soundplaying");
+    // Audio detection: poll browser.audioPlaybackActive since the soundplaying
+    // attribute and DOMAudioPlayback events are managed by tabbrowser and don't
+    // fire on standalone <browser> elements outside the tab strip.
+    this._audioPlaying = false;
+    this._audioPollId = setInterval(() => {
+      if (!this._browser) return;
+      try {
+        const playing = !!this._browser.audioPlaybackActive;
+        if (playing !== this._audioPlaying) {
+          this._audioPlaying = playing;
+          this.sidebar.toolbar.updateAudioState(this);
+        }
+      } catch {}
+    }, 500);
 
     this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
     this._browser.addEventListener("DOMLinkAdded", this._onLinkAdded);
@@ -215,9 +213,7 @@ class WebPanel {
     if (!this._browser) return;
     if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
     if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
-    if (this._onAudioStart) this._browser.removeEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
-    if (this._onAudioStop) this._browser.removeEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
-    if (this._audioObserver) { this._audioObserver.disconnect(); this._audioObserver = null; }
+    if (this._audioPollId) { clearInterval(this._audioPollId); this._audioPollId = null; }
   }
 
   _parseBadge(title) {
