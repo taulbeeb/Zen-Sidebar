@@ -1662,10 +1662,10 @@ class ZenSidebar {
   }
 
   // ── Auto-Hide ──────────────────────────────────────────────────
-  // When enabled, the entire sidebar collapses to a thin invisible
-  // trigger strip on the right edge. Hovering over it reveals the
-  // full sidebar (toolbar + panel). Mousing away hides everything
-  // again after the configured delay.
+  // When enabled, the toolbar auto-hides after the mouse leaves.
+  // If a panel is open, the panel stays visible — only the toolbar
+  // strip slides away. Hovering the trigger strip reveals it again.
+  // Settings dialogs prevent auto-hide while open.
 
   _setupAutoHide() {
     // Clean up previous
@@ -1686,7 +1686,7 @@ class ZenSidebar {
 
     if (!this._autoHide) {
       this._sidebarBox.removeAttribute("data-auto-hide");
-      this._sidebarBox.removeAttribute("data-auto-hide-hidden");
+      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
       this._sidebarBox.style.display = "";
       return;
     }
@@ -1700,44 +1700,27 @@ class ZenSidebar {
       this._autoHideTrigger = this.doc.getElementById("zen-sidebar-autohide-trigger");
     }
 
-    // Start hidden
     this._sidebarBox.setAttribute("data-auto-hide", "true");
-    if (this._animations) {
-      this._sidebarBox.setAttribute("data-auto-hide-hidden", "true");
-      this._sidebarBox.style.display = "";
-    } else {
-      this._sidebarBox.style.display = "none";
-    }
+    this._sidebarBox.style.display = "";
+    // Start with toolbar hidden
+    this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
 
-    // Trigger strip: hover to reveal just the toolbar
+    // Trigger strip: hover to reveal toolbar
     this._autoHideTrigger.addEventListener("mouseenter", () => {
-      if (this._animations) {
-        this._sidebarBox.removeAttribute("data-auto-hide-hidden");
-      } else {
-        this._sidebarBox.style.display = "";
-      }
+      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
     });
 
-    // Sidebar: mouse leave to hide after delay
+    // Sidebar: mouse leave to hide toolbar after delay
     this._autoHideLeaveHandler = () => {
+      // Don't auto-hide while a settings dialog is open
+      if (this.settingsDialog._editPanel || this.settingsDialog._settingsPanel) return;
       if (this._autoHideTimer) clearTimeout(this._autoHideTimer);
       this._autoHideTimer = setTimeout(() => {
         this._autoHideTimer = null;
-        // Collapse panel if open
-        if (this._panelOpen) {
-          this._panelOpen = false;
-          this._panelArea.setAttribute("data-collapsed", "true");
-          this._dragHandle.style.display = "none";
-          this._sidebarBox.removeAttribute("data-panel-open");
-          this._sidebarBox.style.width = "";
-          this._clearResize();
-        }
-        // Hide the entire sidebar
-        if (this._animations) {
-          this._sidebarBox.setAttribute("data-auto-hide-hidden", "true");
-        } else {
-          this._sidebarBox.style.display = "none";
-        }
+        // Don't hide if settings opened during the delay
+        if (this.settingsDialog._editPanel || this.settingsDialog._settingsPanel) return;
+        // Only hide the toolbar — leave the panel open if it's open
+        this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
       }, this._autoHideDelay);
     };
 
@@ -1746,6 +1729,8 @@ class ZenSidebar {
         clearTimeout(this._autoHideTimer);
         this._autoHideTimer = null;
       }
+      // Reveal toolbar on enter
+      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
     };
 
     this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
@@ -2247,11 +2232,12 @@ const CSS_TEXT = `
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
 
 /* ── Auto-Hide Animation ─────────────────────────────────── */
-#zen-sidebar-box[data-auto-hide] {
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease, width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+#zen-sidebar-toolbar {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
 }
-#zen-sidebar-box[data-auto-hide-hidden] {
+#zen-sidebar-toolbar[data-auto-hide-hidden] {
   opacity: 0; transform: translateX(20px); pointer-events: none;
+  width: 0; min-width: 0; max-width: 0; padding: 0; overflow: hidden; border: none;
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
