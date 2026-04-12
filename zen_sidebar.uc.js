@@ -1535,8 +1535,6 @@ class ZenSidebar {
     const panelWidth = panel?.width || this._getWidth();
     const toolbarWidth = this._getToolbarWidth();
 
-    // Set up DOM state immediately (no transition)
-    this._sidebarBox.classList.add("zen-sidebar-no-transition");
     this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
     this._panelArea.removeAttribute("hidden");
     this._panelArea.removeAttribute("data-collapsed");
@@ -1547,17 +1545,18 @@ class ZenSidebar {
     this._updateZoomLabel();
 
     if (this._mode === "overlay") {
-      // Overlay: panel is fixed-positioned, sidebar box stays at toolbar width
       this._panelArea.style.width = `${panelWidth}px`;
       this._sidebarBox.style.width = "";
-      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-    } else {
-      // Resize: sidebar box widens to include the panel
-      const targetWidth = panelWidth + toolbarWidth;
+    } else if (this._animations) {
+      // Animated resize: suppress transitions, set start, reflow, animate to target
+      this._sidebarBox.classList.add("zen-sidebar-no-transition");
       this._sidebarBox.style.width = `${toolbarWidth}px`;
-      this._sidebarBox.getBoundingClientRect(); // lock starting width
+      this._sidebarBox.getBoundingClientRect();
       this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-      this._sidebarBox.style.width = `${targetWidth}px`;
+      this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
+    } else {
+      // No animation: just set final width directly
+      this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
     }
 
     if (panel) panel.load();
@@ -1601,16 +1600,12 @@ class ZenSidebar {
   _finishCollapse() {
     // Skip if panel was re-opened before cleanup fired
     if (this._panelOpen) return;
-    this._sidebarBox.classList.add("zen-sidebar-no-transition");
     this._panelArea.setAttribute("data-collapsed", "true");
     this._dragHandle.style.display = "none";
     this._sidebarBox.style.width = "";
-    // If auto-hide is active and toolbar is hidden, collapse the box too
     if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
       this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
     }
-    this._sidebarBox.getBoundingClientRect();
-    this._sidebarBox.classList.remove("zen-sidebar-no-transition");
   }
 
   switchToPanel(panel) {
