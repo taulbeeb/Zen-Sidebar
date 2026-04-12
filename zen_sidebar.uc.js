@@ -1548,23 +1548,21 @@ class ZenSidebar {
     if (this._mode === "overlay") {
       // Overlay: panel is fixed-positioned, sidebar box stays at toolbar width
       this._panelArea.style.width = `${panelWidth}px`;
-      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
       this._sidebarBox.style.width = "";
+      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
     } else {
       // Resize: sidebar box widens to include the panel
       const targetWidth = panelWidth + toolbarWidth;
+      this._sidebarBox.style.width = `${toolbarWidth}px`;
+      // Synchronous reflow locks the starting width (no rAF — immune to focus loss)
+      this._sidebarBox.getBoundingClientRect();
+      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
+
       if (this._animations) {
         this._isAnimating = true;
-        this._sidebarBox.style.width = `${toolbarWidth}px`;
-        this.win.requestAnimationFrame(() => {
-          this.win.requestAnimationFrame(() => {
-            this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-            this._sidebarBox.style.width = `${targetWidth}px`;
-            setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
-          });
-        });
+        this._sidebarBox.style.width = `${targetWidth}px`;
+        setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
       } else {
-        this._sidebarBox.classList.remove("zen-sidebar-no-transition");
         this._sidebarBox.style.width = `${targetWidth}px`;
       }
     }
@@ -1584,16 +1582,10 @@ class ZenSidebar {
       this._dragHandle.style.display = "none";
     } else if (this._animations) {
       this._isAnimating = true;
-      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`; // animate width down
+      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       this._clearResize();
-
-      const onEnd = (e) => {
-        if (e.propertyName !== "width" || e.target !== this._sidebarBox) return;
-        this._sidebarBox.removeEventListener("transitionend", onEnd);
-        this._finishCollapse();
-      };
-      this._sidebarBox.addEventListener("transitionend", onEnd);
-      setTimeout(() => { this._sidebarBox.removeEventListener("transitionend", onEnd); this._finishCollapse(); }, ANIM_DURATION + 50);
+      // Use setTimeout instead of transitionend — immune to window focus loss
+      setTimeout(() => { this._finishCollapse(); }, ANIM_DURATION + 50);
     } else {
       this._panelArea.setAttribute("hidden", "true");
       this._dragHandle.style.display = "none";
