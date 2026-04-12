@@ -1449,7 +1449,7 @@ class ZenSidebar {
     this._removeKeybinding();
     this._removeContentContextMenu();
     this._savePrefs();
-    for (const el of [this._sidebarBox, this._overlayBox, this._inlineStyleEl]) {
+    for (const el of [this._sidebarBox, this._inlineStyleEl]) {
       if (el) el.remove();
     }
   }
@@ -1502,15 +1502,9 @@ class ZenSidebar {
 
     const toolbarEl = this.toolbar.build();
 
-    // Overlay container — a separate fixed-position element for overlay mode
-    this._overlayBox = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "div");
-    this._overlayBox.id = "zen-sidebar-overlay";
-    this._overlayBox.style.display = "none";
-
     // Layout: [drag-handle | panel-area | icon-toolbar]
     this._sidebarBox.append(this._dragHandle, this._panelArea, toolbarEl);
     container.appendChild(this._sidebarBox);
-    container.appendChild(this._overlayBox);
     this._applyMode();
   }
 
@@ -1595,10 +1589,15 @@ class ZenSidebar {
 
     const effectiveMode = this._getEffectiveMode(panel);
     if (effectiveMode === "overlay") {
-      // Overlay: move panel area into fixed overlay container
-      this._overlayBox.appendChild(this._panelArea);
-      this._overlayBox.style.display = "";
+      // Overlay: apply fixed positioning inline on the panel area
+      this._panelArea.style.position = "fixed";
+      this._panelArea.style.top = "8px";
+      this._panelArea.style.bottom = "8px";
+      this._panelArea.style.right = `${toolbarWidth + 8}px`;
+      this._panelArea.style.zIndex = "10000";
       this._panelArea.style.width = `${panelWidth}px`;
+      this._panelArea.style.margin = "0";
+      this._panelArea.style.boxShadow = "-2px 0 12px rgba(0,0,0,0.25)";
       this._sidebarBox.style.width = "";
     } else if (this._animations) {
       // Animated resize: suppress transitions, set start, reflow, animate to target
@@ -1624,12 +1623,10 @@ class ZenSidebar {
     this._panelArea.style.width = "";
 
     if (collapseMode === "overlay") {
-      // Overlay: move panel area back into sidebar box and hide overlay
+      // Overlay: clear fixed positioning, hide panel
       this._panelArea.setAttribute("data-collapsed", "true");
       this._dragHandle.style.display = "none";
-      this._panelArea.style.width = "";
-      this._sidebarBox.insertBefore(this._panelArea, this.toolbar._toolbar);
-      this._overlayBox.style.display = "none";
+      this._clearOverlayStyles();
       this._sidebarBox.style.width = "";
     } else if (this._animations) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
@@ -1650,6 +1647,12 @@ class ZenSidebar {
         panel.unload();
         this.toolbar.updateUnloadedState(panel);
       }
+    }
+  }
+
+  _clearOverlayStyles() {
+    for (const prop of ["position", "top", "bottom", "right", "zIndex", "width", "margin", "boxShadow"]) {
+      this._panelArea.style[prop] = "";
     }
   }
 
@@ -1720,16 +1723,20 @@ class ZenSidebar {
     // Adjust layout when switching modes with a panel open
     if (this._panelOpen && panel) {
       const panelWidth = panel.width || this._getWidth();
+      const toolbarWidth = this._getToolbarWidth();
       if (effectiveMode === "overlay") {
-        this._overlayBox.appendChild(this._panelArea);
-        this._overlayBox.style.display = "";
+        this._panelArea.style.position = "fixed";
+        this._panelArea.style.top = "8px";
+        this._panelArea.style.bottom = "8px";
+        this._panelArea.style.right = `${toolbarWidth + 8}px`;
+        this._panelArea.style.zIndex = "10000";
         this._panelArea.style.width = `${panelWidth}px`;
+        this._panelArea.style.margin = "0";
+        this._panelArea.style.boxShadow = "-2px 0 12px rgba(0,0,0,0.25)";
         this._sidebarBox.style.width = "";
       } else {
-        this._sidebarBox.insertBefore(this._panelArea, this.toolbar._toolbar);
-        this._overlayBox.style.display = "none";
-        this._panelArea.style.width = "";
-        this._sidebarBox.style.width = `${panelWidth + this._getToolbarWidth()}px`;
+        this._clearOverlayStyles();
+        this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
       }
     }
   }
@@ -2103,18 +2110,6 @@ const CSS_TEXT = `
 /* Hide drag handle in overlay mode */
 #zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
 
-/* ── Overlay Container (separate fixed element for overlay panels) ── */
-#zen-sidebar-overlay {
-  position: fixed; top: 8px; bottom: 8px; z-index: 10000;
-  right: calc(var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px) + 8px);
-  display: flex; flex-direction: column;
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
-}
-#zen-sidebar-overlay #zen-sidebar-panel-area {
-  margin: 0; border-radius: 10px;
-}
 /* Disable transitions during drag resize */
 #zen-sidebar-box.zen-sidebar-dragging,
 #zen-sidebar-box.zen-sidebar-dragging * { transition: none !important; }
