@@ -1233,16 +1233,7 @@ class SettingsDialog {
     autoHideModeSelect.value = s._autoHideMode;
     content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
 
-    // Default panel mode
-    const defaultModeSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const dmPopup = xul("menupopup");
-    for (const [val, lbl] of [["resize", "Pinned"], ["overlay", "Overlay"]]) {
-      dmPopup.appendChild(xul("menuitem", { value: val, label: lbl }));
-    }
-    defaultModeSelect.appendChild(dmPopup);
-    defaultModeSelect.value = s._mode;
-    content.appendChild(row(label("Default Panel Mode"), defaultModeSelect));
-
+    // Padding
     // Sidebar size
     const sizeSelect = xul("menulist", { class: "zen-settings-menulist" });
     const sizePopup = xul("menupopup");
@@ -1328,8 +1319,6 @@ class SettingsDialog {
       s._autoHide = autoHideCheck.checked;
       s._autoHideDelay = parseInt(autoHideDelayInput.value, 10) || 300;
       s._autoHideMode = autoHideModeSelect.value;
-      s._mode = defaultModeSelect.value;
-      s._applyMode();
       s._sidebarSize = sizeSelect.value;
       s._containerIndicatorPosition = indicatorSelect.value;
       s._animations = animCheck.checked;
@@ -1615,11 +1604,13 @@ class ZenSidebar {
       this._dragHandle.style.display = "none";
     } else if (this._animations) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
+      this._clearResize();
       this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
     } else {
       this._panelArea.setAttribute("hidden", "true");
       this._dragHandle.style.display = "none";
       this._sidebarBox.style.width = "";
+      this._clearResize();
       if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
         this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
       }
@@ -1682,10 +1673,13 @@ class ZenSidebar {
     if (modeBtn) {
       modeBtn.setAttribute("data-mode", this._mode);
       modeBtn.setAttribute("tooltiptext",
-        this._mode === "overlay" ? "Pin panel" : "Unpin panel");
+        this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode");
     }
   }
 
+  _clearResize() {
+    // No-op: sidebar is in document flow, flex layout handles sizing naturally
+  }
 
   _applyVisualPrefs() {
     if (!this._sidebarBox) return;
@@ -2141,8 +2135,8 @@ const CSS_TEXT = `
   background: var(--toolbar-color, #fbfbfe);
   mask-size: contain; mask-repeat: no-repeat; mask-position: center; opacity: 0.7;
 }
-#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); }
-#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); opacity: 0.4; }
+#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/open-in-new.svg"); }
+#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/arrow-left.svg"); }
 
 /* ── Panel Container ──────────────────────────────────────── */
 #zen-sidebar-panel-container {
@@ -2327,7 +2321,7 @@ const CSS_TEXT = `
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
-/* ── Smooth Resize-Mode Content Push ─────────────────────── */
+/* appcontent margin is set/cleared synchronously — no transition needed */
 
 /* ── Animation Toggle ─────────────────────────────────────── */
 #zen-sidebar-box[data-no-animations] *,
