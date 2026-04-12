@@ -1264,6 +1264,36 @@ class SettingsDialog {
     tooltipSelect.value = s._tooltipDefault;
     content.appendChild(row(label("Default Tooltip"), tooltipSelect));
 
+    // Color helpers
+    const rgbaToHex = (rgba) => {
+      const m = rgba.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)/);
+      if (!m) return { hex: "#000000", opacity: 10 };
+      const hex = "#" + [m[1],m[2],m[3]].map(n => parseInt(n).toString(16).padStart(2,"0")).join("");
+      return { hex, opacity: Math.round((parseFloat(m[4] ?? 1) * 100)) };
+    };
+    const hexToRgba = (hex, opacity) => {
+      const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+      return `rgba(${r},${g},${b},${opacity / 100})`;
+    };
+
+    // Toolbar color
+    const tbParsed = rgbaToHex(s._toolbarColor);
+    const tbColorInput = html("input", { type: "color", value: tbParsed.hex, class: "zen-settings-color" });
+    const tbOpacityInput = html("input", { type: "range", min: "0", max: "100", value: String(tbParsed.opacity), class: "zen-settings-range" });
+    const tbOpacityLabel = xul("label", { value: tbParsed.opacity + "%", class: "zen-settings-label" });
+    tbOpacityInput.addEventListener("input", () => { tbOpacityLabel.setAttribute("value", tbOpacityInput.value + "%"); });
+    content.appendChild(label("Toolbar Color"));
+    content.appendChild(row(tbColorInput, tbOpacityInput, tbOpacityLabel));
+
+    // Nav bar color
+    const nbParsed = rgbaToHex(s._navbarColor);
+    const nbColorInput = html("input", { type: "color", value: nbParsed.hex, class: "zen-settings-color" });
+    const nbOpacityInput = html("input", { type: "range", min: "0", max: "100", value: String(nbParsed.opacity), class: "zen-settings-range" });
+    const nbOpacityLabel = xul("label", { value: nbParsed.opacity + "%", class: "zen-settings-label" });
+    nbOpacityInput.addEventListener("input", () => { nbOpacityLabel.setAttribute("value", nbOpacityInput.value + "%"); });
+    content.appendChild(label("Nav Bar Color"));
+    content.appendChild(row(nbColorInput, nbOpacityInput, nbOpacityLabel));
+
     // Buttons
     const btnRow = xul("hbox", { class: "zen-settings-btn-row", pack: "end" });
     const cancelBtn = html("button", { class: "zen-settings-btn" });
@@ -1280,6 +1310,8 @@ class SettingsDialog {
       s._animations = animCheck.checked;
       s._autoHideNavButtons = navBtnCheck.checked;
       s._tooltipDefault = tooltipSelect.value;
+      s._toolbarColor = hexToRgba(tbColorInput.value, parseInt(tbOpacityInput.value, 10));
+      s._navbarColor = hexToRgba(nbColorInput.value, parseInt(nbOpacityInput.value, 10));
       s._savePrefs();
       s._applyVisualPrefs();
       popup.hidePopup();
@@ -1317,6 +1349,8 @@ const PREF_CONTAINER_INDICATOR = "zen.sidebar.containerIndicatorPosition";
 const PREF_ANIMATIONS = "zen.sidebar.animations";
 const PREF_AUTO_HIDE_NAV = "zen.sidebar.autoHideNavButtons";
 const PREF_TOOLTIP_DEFAULT = "zen.sidebar.tooltipDefault";
+const PREF_TOOLBAR_COLOR = "zen.sidebar.toolbarColor";
+const PREF_NAVBAR_COLOR = "zen.sidebar.navbarColor";
 const SIDEBAR_DEFAULT_WIDTH = 400;
 const TOOLBAR_WIDTH = 48;
 const ANIM_DURATION = 200; // ms – sidebar open/close transition time
@@ -1350,6 +1384,8 @@ class ZenSidebar {
     this._animations = true;
     this._autoHideNavButtons = false;
     this._tooltipDefault = "title";
+    this._toolbarColor = "rgba(0,0,0,0.1)";
+    this._navbarColor = "transparent";
     this._isAnimating = false;
   }
 
@@ -1674,6 +1710,9 @@ class ZenSidebar {
     this._sidebarBox.style.setProperty("--zen-toolbar-pad", sz.pad + "px");
     this._sidebarBox.style.setProperty("--zen-icon-radius", sz.iconRadius + "px");
     this._sidebarBox.setAttribute("data-indicator-pos", this._containerIndicatorPosition);
+    // Colors
+    this._sidebarBox.style.setProperty("--zen-toolbar-bg", this._toolbarColor);
+    this._sidebarBox.style.setProperty("--zen-navbar-bg", this._navbarColor);
     if (!this._animations) {
       this._sidebarBox.setAttribute("data-no-animations", "true");
       this.doc.documentElement.setAttribute("data-zen-no-animations", "true");
@@ -1968,6 +2007,8 @@ class ZenSidebar {
     try { this._animations = Services.prefs.getBoolPref(PREF_ANIMATIONS, true); } catch { this._animations = true; }
     try { this._autoHideNavButtons = Services.prefs.getBoolPref(PREF_AUTO_HIDE_NAV, false); } catch { this._autoHideNavButtons = false; }
     try { this._tooltipDefault = Services.prefs.getStringPref(PREF_TOOLTIP_DEFAULT, "title") || "title"; } catch { this._tooltipDefault = "title"; }
+    try { this._toolbarColor = Services.prefs.getStringPref(PREF_TOOLBAR_COLOR, "rgba(0,0,0,0.1)"); } catch { this._toolbarColor = "rgba(0,0,0,0.1)"; }
+    try { this._navbarColor = Services.prefs.getStringPref(PREF_NAVBAR_COLOR, "transparent"); } catch { this._navbarColor = "transparent"; }
   }
 
   _savePrefs() {
@@ -1980,6 +2021,8 @@ class ZenSidebar {
     Services.prefs.setBoolPref(PREF_ANIMATIONS, this._animations);
     Services.prefs.setBoolPref(PREF_AUTO_HIDE_NAV, this._autoHideNavButtons);
     Services.prefs.setStringPref(PREF_TOOLTIP_DEFAULT, this._tooltipDefault);
+    Services.prefs.setStringPref(PREF_TOOLBAR_COLOR, this._toolbarColor);
+    Services.prefs.setStringPref(PREF_NAVBAR_COLOR, this._navbarColor);
     this.panelManager.save();
   }
 
@@ -2078,6 +2121,7 @@ const CSS_TEXT = `
   display: flex; align-items: center; gap: 2px;
   padding: 4px 6px;
   min-height: 34px; flex-shrink: 0;
+  background: var(--zen-navbar-bg, transparent);
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-navbar[collapsed="true"] { display: none !important; }
@@ -2132,7 +2176,7 @@ const CSS_TEXT = `
   min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   max-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   flex-shrink: 0;
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--zen-toolbar-bg, rgba(0,0,0,0.1));
   padding: var(--zen-toolbar-pad, 8px) 0;
   box-sizing: border-box;
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
@@ -2376,6 +2420,13 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 .zen-settings-input-short { width: 80px; flex-shrink: 0; }
+.zen-settings-color {
+  width: 32px; height: 28px; padding: 2px; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px; background: transparent; cursor: pointer; flex-shrink: 0;
+}
+.zen-settings-range {
+  flex: 1; min-width: 60px; height: 4px; accent-color: var(--zen-primary-color, AccentColor);
+}
 /* XUL checkbox */
 .zen-settings-check {
   margin: 4px 0;
