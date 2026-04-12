@@ -1415,14 +1415,9 @@ class ZenSidebar {
     this._sidebarBox.removeAttribute("hidden");
 
     // Pre-warm layout engine when window regains focus (macOS App Nap
-    // aggressively suspends rendering for background windows — the first
-    // relayout after returning is expensive, especially in resize mode
-    // which changes appcontent's margin). Touch both elements to wake up
-    // their compositor layers before the user interacts.
+    // aggressively suspends rendering for background windows)
     this._focusHandler = () => {
       if (this._sidebarBox) this._sidebarBox.offsetHeight;
-      const appcontent = this.doc.getElementById("appcontent");
-      if (appcontent) appcontent.offsetHeight;
     };
     this.win.addEventListener("focus", this._focusHandler);
     // Also listen for visibilitychange as a belt-and-suspenders approach
@@ -1680,20 +1675,10 @@ class ZenSidebar {
       modeBtn.setAttribute("tooltiptext",
         this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode");
     }
-    if (this._panelOpen) {
-      this._mode === "resize" ? this._pushContent() : this._clearResize();
-    }
-  }
-
-  _pushContent() {
-    const appcontent = this.doc.getElementById("appcontent");
-    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + this._getToolbarWidth();
-    if (appcontent) appcontent.style.marginRight = `${w}px`;
   }
 
   _clearResize() {
-    const appcontent = this.doc.getElementById("appcontent");
-    if (appcontent) appcontent.style.marginRight = "";
+    // No-op: sidebar is in document flow, flex layout handles sizing naturally
   }
 
   _applyVisualPrefs() {
@@ -1819,8 +1804,6 @@ class ZenSidebar {
     this._sidebarBox.style.userSelect = "none";
     // Suppress transitions during drag to prevent jitter
     this._sidebarBox.classList.add("zen-sidebar-dragging");
-    const appcontent = this.doc.getElementById("appcontent");
-    if (appcontent) appcontent.style.transition = "none";
 
     let pendingFrame = null;
 
@@ -1832,7 +1815,6 @@ class ZenSidebar {
         const delta = startX - e.clientX;
         const totalW = Math.max(200 + this._getToolbarWidth(), startWidth + delta);
         this._sidebarBox.style.width = `${totalW}px`;
-        if (this._mode === "resize") this._pushContent();
       });
     };
     const onMouseUp = () => {
@@ -1843,7 +1825,6 @@ class ZenSidebar {
       this._panelArea.style.pointerEvents = "";
       this._sidebarBox.style.userSelect = "";
       this._sidebarBox.classList.remove("zen-sidebar-dragging");
-      if (appcontent) appcontent.style.transition = "";
       // Save to active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
       const panelW = totalW - this._getToolbarWidth();
