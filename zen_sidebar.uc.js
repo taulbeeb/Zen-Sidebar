@@ -14,11 +14,7 @@
   // ═══════════════════════════════════════════════════════════════
 
 class WebPanel {
-  constructor(sidebar, { id, url, label, icon, userContextId = 0, showToolbar = true, width = 0, mobileUA = true,
-    zoom = 1.0, muted = false, loadOnStartup = true, unloadOnClose = false,
-    autoReloadInterval = 0, keybinding = "",
-    dynamicTitle = true, dynamicFavicon = true, customTitle = "", customIcon = "",
-    cssSelector = "", tooltipMode = "title" }) {
+  constructor(sidebar, { id, url, label, icon, userContextId = 0, showToolbar = true, width = 0, mobileUA = true }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
@@ -26,21 +22,8 @@ class WebPanel {
     this.icon = icon;
     this.userContextId = userContextId;
     this.showToolbar = showToolbar;
-    this.width = width;
-    this.mobileUA = mobileUA;
-    // Phase 0: new fields
-    this.zoom = zoom;
-    this.muted = muted;
-    this.loadOnStartup = loadOnStartup;
-    this.unloadOnClose = unloadOnClose;
-    this.autoReloadInterval = autoReloadInterval;
-    this.keybinding = keybinding;
-    this.dynamicTitle = dynamicTitle;
-    this.dynamicFavicon = dynamicFavicon;
-    this.customTitle = customTitle;
-    this.customIcon = customIcon;
-    this.cssSelector = cssSelector;
-    this.tooltipMode = tooltipMode;
+    this.width = width;       // 0 = use global default
+    this.mobileUA = mobileUA; // whether to use mobile user agent
     this._browser = null;
     this._loaded = false;
   }
@@ -90,55 +73,15 @@ class WebPanel {
   }
 
   show() {
-    this.ensureBrowser();
     if (!this._browser) return;
     this.load();
     this._browser.style.display = "";
-    this._applyZoom();
   }
 
   hide() {
     if (!this._browser) return;
     this._browser.style.display = "none";
   }
-
-  // ── Memory Management ─────────────────────────────────────────
-
-  ensureBrowser() {
-    if (!this._browser) {
-      this.createBrowser();
-    }
-  }
-
-  unload() {
-    if (this._browser) {
-      this._browser.remove();
-      this._browser = null;
-      this._loaded = false;
-    }
-  }
-
-  get isLoaded() { return !!this._browser; }
-
-  // ── Zoom ──────────────────────────────────────────────────────
-
-  _applyZoom() {
-    if (this._browser && this.zoom !== 1.0) {
-      try { this._browser.fullZoom = this.zoom; } catch {}
-    }
-  }
-
-  setZoom(level) {
-    this.zoom = Math.max(0.3, Math.min(3.0, level));
-    if (this._browser) {
-      try { this._browser.fullZoom = this.zoom; } catch {}
-    }
-    this.sidebar.panelManager.save();
-  }
-
-  zoomIn() { this.setZoom((this.zoom || 1.0) + 0.1); }
-  zoomOut() { this.setZoom((this.zoom || 1.0) - 0.1); }
-  resetZoom() { this.setZoom(1.0); }
 
   destroy() {
     if (this._browser) {
@@ -175,15 +118,6 @@ class PanelManager {
       userContextId,
       width: opts.width || 0,
       mobileUA: opts.mobileUA !== false,
-      zoom: opts.zoom ?? 1.0,
-      autoReloadInterval: opts.autoReloadInterval || 0,
-      cssSelector: opts.cssSelector || "",
-      keybinding: opts.keybinding || "",
-      tooltipMode: opts.tooltipMode || "title",
-      loadOnStartup: opts.loadOnStartup !== false,
-      unloadOnClose: opts.unloadOnClose || false,
-      customTitle: opts.customTitle || "",
-      customIcon: opts.customIcon || "",
     });
     this.panels.push(panel);
     panel.createBrowser();
@@ -197,7 +131,6 @@ class PanelManager {
     const idx = this.panels.indexOf(panel);
     if (idx === -1) return;
 
-    this._stopAutoReload(panel);
     panel.destroy();
     this.panels.splice(idx, 1);
     this.sidebar.toolbar.removeIcon(panel);
@@ -258,18 +191,6 @@ class PanelManager {
       showToolbar: p.showToolbar !== false,
       width: p.width || 0,
       mobileUA: p.mobileUA !== false,
-      zoom: p.zoom ?? 1.0,
-      muted: p.muted || false,
-      loadOnStartup: p.loadOnStartup !== false,
-      unloadOnClose: p.unloadOnClose || false,
-      autoReloadInterval: p.autoReloadInterval || 0,
-      keybinding: p.keybinding || "",
-      dynamicTitle: p.dynamicTitle !== false,
-      dynamicFavicon: p.dynamicFavicon !== false,
-      customTitle: p.customTitle || "",
-      customIcon: p.customIcon || "",
-      cssSelector: p.cssSelector || "",
-      tooltipMode: p.tooltipMode || "title",
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     Services.prefs.setStringPref(PREF_PANELS, JSON.stringify({ panels: data, activeId }));
@@ -290,27 +211,10 @@ class PanelManager {
         showToolbar: p.showToolbar !== false,
         width: p.width || 0,
         mobileUA: p.mobileUA !== false,
-        zoom: p.zoom ?? 1.0,
-        muted: p.muted || false,
-        loadOnStartup: p.loadOnStartup !== false,
-        unloadOnClose: p.unloadOnClose || false,
-        autoReloadInterval: p.autoReloadInterval || 0,
-        keybinding: p.keybinding || "",
-        dynamicTitle: p.dynamicTitle !== false,
-        dynamicFavicon: p.dynamicFavicon !== false,
-        customTitle: p.customTitle || "",
-        customIcon: p.customIcon || "",
-        cssSelector: p.cssSelector || "",
-        tooltipMode: p.tooltipMode || "title",
       });
       this.panels.push(panel);
-      if (panel.loadOnStartup) {
-        panel.createBrowser();
-      }
+      panel.createBrowser();
       this.sidebar.toolbar.addIcon(panel);
-      if (!panel.loadOnStartup) {
-        this.sidebar.toolbar.updateUnloadedState(panel);
-      }
     }
 
     if (data.activeId) {
@@ -319,29 +223,6 @@ class PanelManager {
         this._activePanel = active;
         this.sidebar.toolbar.setActive(active);
       }
-    }
-
-    // Start auto-reload timers
-    for (const panel of this.panels) {
-      if (panel.autoReloadInterval > 0 && panel.isLoaded) {
-        this._startAutoReload(panel);
-      }
-    }
-  }
-
-  _startAutoReload(panel) {
-    this._stopAutoReload(panel);
-    if (panel.autoReloadInterval > 0) {
-      panel._autoReloadTimerId = setInterval(() => {
-        if (panel._browser) panel._browser.reload();
-      }, panel.autoReloadInterval);
-    }
-  }
-
-  _stopAutoReload(panel) {
-    if (panel._autoReloadTimerId) {
-      clearInterval(panel._autoReloadTimerId);
-      panel._autoReloadTimerId = null;
     }
   }
 
@@ -404,18 +285,6 @@ class Toolbar {
     this._iconContainer.appendChild(this._addBtn);
 
     this._toolbar.appendChild(this._iconContainer);
-
-    // Settings gear at bottom
-    this._settingsBtn = this._el("toolbarbutton", {
-      id: "zen-sidebar-settings-btn",
-      tooltiptext: "Sidebar Settings",
-      image: "chrome://global/skin/icons/settings.svg",
-    });
-    this._settingsBtn.addEventListener("command", () => {
-      this.sidebar.settingsDialog.showSettings(this._settingsBtn);
-    });
-    this._toolbar.appendChild(this._settingsBtn);
-
     return this._toolbar;
   }
 
@@ -465,16 +334,6 @@ class Toolbar {
 
   clearActive() {
     for (const btn of this._icons.values()) btn.removeAttribute("data-active");
-  }
-
-  updateUnloadedState(panel) {
-    const btn = this._icons.get(panel.id);
-    if (!btn) return;
-    if (!panel.isLoaded) {
-      btn.setAttribute("data-unloaded", "true");
-    } else {
-      btn.removeAttribute("data-unloaded");
-    }
   }
 
   rebuild() {
@@ -602,8 +461,7 @@ class Toolbar {
     if (panel.icon) headerItem.setAttribute("image", panel.icon);
 
     const editItem = this._el("menuitem", { label: "Edit Panel..." });
-    const iconBtn = this._icons.get(panel.id);
-    editItem.addEventListener("command", () => this.sidebar.showAddPanelForm(panel, iconBtn));
+    editItem.addEventListener("command", () => this.sidebar.showAddPanelForm(panel));
 
     const containerName = this.sidebar.panelManager.getContainerName(panel.userContextId);
     const containerItem = this._el("menuitem", { label: `Container: ${containerName}` });
@@ -633,51 +491,6 @@ class Toolbar {
       if (panel._browser) panel._browser.setAttribute("src", panel.url);
     });
 
-    // Quick Actions
-    const openTabItem = this._el("menuitem", { label: "Open in New Tab" });
-    openTabItem.addEventListener("command", () => {
-      const url = panel._browser?.currentURI?.spec || panel.url;
-      try {
-        this.sidebar.win.gBrowser.addTab(url, {
-          triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
-        });
-      } catch { this.sidebar.win.openUILinkIn(url, "tab"); }
-    });
-
-    const copyUrlItem = this._el("menuitem", { label: "Copy URL" });
-    copyUrlItem.addEventListener("command", () => {
-      const url = panel._browser?.currentURI?.spec || panel.url;
-      try {
-        const clip = Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper);
-        clip.copyString(url);
-      } catch {
-        // Fallback
-        const ta = this.doc.createElementNS("http://www.w3.org/1999/xhtml", "textarea");
-        ta.value = url;
-        this.doc.documentElement.appendChild(ta);
-        ta.select();
-        this.doc.execCommand("copy");
-        ta.remove();
-      }
-    });
-
-    // Unload from memory
-    const unloadItem = this._el("menuitem", {
-      label: panel.isLoaded ? "Unload from Memory" : "Load into Memory",
-    });
-    unloadItem.addEventListener("command", () => {
-      if (panel.isLoaded) {
-        panel.unload();
-        this.updateUnloadedState(panel);
-        if (this.sidebar.panelManager.activePanel === panel) {
-          this.sidebar.collapsePanel();
-        }
-      } else {
-        panel.ensureBrowser();
-        this.updateUnloadedState(panel);
-      }
-    });
-
     const sep2 = this._el("menuseparator");
 
     const removeItem = this._el("menuitem", { label: "Remove Panel" });
@@ -688,8 +501,6 @@ class Toolbar {
       editItem, containerItem,
       sep2,
       toolbarItem, reloadItem, homeItem,
-      openTabItem, copyUrlItem,
-      unloadItem,
       this._el("menuseparator"),
       removeItem
     );
@@ -715,15 +526,8 @@ class Toolbar {
   // ── Helpers ───────────────────────────────────────────────────────
 
   _tooltip(panel) {
-    const mode = panel.tooltipMode || this.sidebar._tooltipDefault || "title";
-    if (mode === "off") return "";
-    const containerName = panel.userContextId > 0 ? ` [${this.sidebar.panelManager.getContainerName(panel.userContextId)}]` : "";
-    const currentUrl = panel._browser?.currentURI?.spec || panel.url;
-    switch (mode) {
-      case "url": return currentUrl + containerName;
-      case "both": return `${panel.label}\n${currentUrl}${containerName}`;
-      default: return panel.label + containerName;
-    }
+    const name = this.sidebar.panelManager.getContainerName(panel.userContextId);
+    return panel.userContextId > 0 ? `${panel.label} [${name}]` : panel.label;
   }
 
   _applyContainerColor(btn, panel) {
@@ -743,388 +547,12 @@ class Toolbar {
 }
 
   // ═══════════════════════════════════════════════════════════════
-  // SettingsDialog
-  // ═══════════════════════════════════════════════════════════════
-
-class SettingsDialog {
-  constructor(sidebar) {
-    this.sidebar = sidebar;
-    this.doc = sidebar.doc;
-    this._editPanel = null;
-    this._settingsPanel = null;
-  }
-
-  // ── Panel Edit Dialog ─────────────────────────────────────────
-
-  showEditPanel(panel, anchor) {
-    this._closeAll();
-    const isEdit = !!panel;
-    const p = panel || {};
-
-    const xul = (tag, attrs = {}) => {
-      const el = this.doc.createXULElement(tag);
-      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-      return el;
-    };
-    const html = (tag, attrs = {}) => {
-      const el = this.doc.createElementNS("http://www.w3.org/1999/xhtml", tag);
-      for (const [k, v] of Object.entries(attrs)) { el.setAttribute(k, v); }
-      return el;
-    };
-    const label = (text) => {
-      const l = xul("label", { value: text, class: "zen-settings-label" });
-      return l;
-    };
-    const row = (...children) => {
-      const r = xul("hbox", { class: "zen-settings-row", align: "center" });
-      children.forEach((c) => r.appendChild(c));
-      return r;
-    };
-
-    const popup = xul("panel", {
-      id: "zen-settings-edit-panel",
-      type: "arrow",
-      class: "zen-settings-popup",
-      role: "dialog",
-      noautohide: "false",
-    });
-
-    const content = xul("vbox", { class: "zen-settings-content" });
-
-    // Title
-    const title = xul("label", {
-      value: isEdit ? "Edit Panel" : "Add Panel",
-      class: "zen-settings-title",
-    });
-    content.appendChild(title);
-
-    // URL
-    const urlInput = html("input", {
-      type: "text", placeholder: "https://example.com",
-      value: p.url || "https://", class: "zen-settings-input",
-    });
-    content.appendChild(label("URL"));
-    content.appendChild(urlInput);
-
-    // Width
-    const widthInput = html("input", {
-      type: "number", min: "200", max: "2000", step: "10",
-      value: String(p.width || this.sidebar._getWidth()),
-      class: "zen-settings-input zen-settings-input-short",
-    });
-    content.appendChild(row(label("Width"), widthInput));
-
-    // Container
-    const containers = this.sidebar.panelManager.getContainers();
-    let containerSelect = null;
-    if (containers.length > 0) {
-      containerSelect = xul("menulist", { class: "zen-settings-menulist" });
-      const cpopup = xul("menupopup");
-      cpopup.appendChild(xul("menuitem", { value: "0", label: "No Container" }));
-      for (const c of containers) {
-        cpopup.appendChild(xul("menuitem", { value: String(c.userContextId), label: c.name }));
-      }
-      containerSelect.appendChild(cpopup);
-      containerSelect.value = String(p.userContextId || 0);
-      content.appendChild(row(label("Container"), containerSelect));
-    }
-
-    // Mobile UA
-    const mobileCheck = xul("checkbox", { label: "Mobile User Agent", class: "zen-settings-check" });
-    if (p.mobileUA !== false) mobileCheck.setAttribute("checked", "true");
-    content.appendChild(mobileCheck);
-
-    // Zoom
-    const zoomInput = html("input", {
-      type: "number", min: "0.3", max: "3.0", step: "0.1",
-      value: String(p.zoom ?? 1.0),
-      class: "zen-settings-input zen-settings-input-short",
-    });
-    content.appendChild(row(label("Zoom"), zoomInput));
-
-    // Auto-reload interval
-    const reloadSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const reloadPopup = xul("menupopup");
-    const reloadOpts = [
-      [0, "Off"], [30000, "30 seconds"], [60000, "1 minute"],
-      [300000, "5 minutes"], [900000, "15 minutes"],
-      [1800000, "30 minutes"], [3600000, "1 hour"],
-    ];
-    for (const [val, text] of reloadOpts) {
-      reloadPopup.appendChild(xul("menuitem", { value: String(val), label: text }));
-    }
-    reloadSelect.appendChild(reloadPopup);
-    reloadSelect.value = String(p.autoReloadInterval || 0);
-    content.appendChild(row(label("Auto-Reload"), reloadSelect));
-
-    // CSS Selector
-    const cssInput = html("input", {
-      type: "text", placeholder: "#main-content",
-      value: p.cssSelector || "", class: "zen-settings-input",
-    });
-    content.appendChild(label("CSS Selector (extract)"));
-    content.appendChild(cssInput);
-
-    // Keybinding
-    const keyInput = html("input", {
-      type: "text", placeholder: "Click and press keys...",
-      value: p.keybinding || "", class: "zen-settings-input",
-      readonly: "true",
-    });
-    keyInput.addEventListener("focus", () => { keyInput.value = ""; });
-    keyInput.addEventListener("keydown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
-      const parts = [];
-      if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
-      if (e.shiftKey) parts.push("Shift");
-      if (e.altKey) parts.push("Alt");
-      parts.push(e.key.length === 1 ? e.key.toUpperCase() : e.key);
-      keyInput.value = parts.join("+");
-    });
-    const keyClearBtn = html("button", { class: "zen-settings-btn-small" });
-    keyClearBtn.textContent = "Clear";
-    keyClearBtn.addEventListener("click", () => { keyInput.value = ""; });
-    content.appendChild(label("Keyboard Shortcut"));
-    content.appendChild(row(keyInput, keyClearBtn));
-
-    // Tooltip mode
-    const tooltipSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const tooltipPopup = xul("menupopup");
-    for (const opt of ["title", "url", "both", "off"]) {
-      tooltipPopup.appendChild(xul("menuitem", { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }));
-    }
-    tooltipSelect.appendChild(tooltipPopup);
-    tooltipSelect.value = p.tooltipMode || "title";
-    content.appendChild(row(label("Tooltip"), tooltipSelect));
-
-    // Memory management
-    const loadStartupCheck = xul("checkbox", { label: "Load on Startup", class: "zen-settings-check" });
-    if (p.loadOnStartup !== false) loadStartupCheck.setAttribute("checked", "true");
-    content.appendChild(loadStartupCheck);
-
-    const unloadCloseCheck = xul("checkbox", { label: "Unload on Close", class: "zen-settings-check" });
-    if (p.unloadOnClose) unloadCloseCheck.setAttribute("checked", "true");
-    content.appendChild(unloadCloseCheck);
-
-    // Title/Favicon overrides
-    const customTitleInput = html("input", {
-      type: "text", placeholder: "Auto (from page)",
-      value: p.customTitle || "", class: "zen-settings-input",
-    });
-    content.appendChild(label("Custom Title"));
-    content.appendChild(customTitleInput);
-
-    const customIconInput = html("input", {
-      type: "text", placeholder: "Auto (from page)",
-      value: p.customIcon || "", class: "zen-settings-input",
-    });
-    content.appendChild(label("Custom Icon URL"));
-    content.appendChild(customIconInput);
-
-    // Buttons
-    const btnRow = xul("hbox", { class: "zen-settings-btn-row", pack: "end" });
-    const cancelBtn = html("button", { class: "zen-settings-btn" });
-    cancelBtn.textContent = "Cancel";
-    cancelBtn.addEventListener("click", () => popup.hidePopup());
-    const applyBtn = html("button", { class: "zen-settings-btn zen-settings-btn-primary" });
-    applyBtn.textContent = isEdit ? "Apply" : "Add";
-    applyBtn.addEventListener("click", () => {
-      let finalURL = urlInput.value.trim();
-      if (!finalURL) return;
-      if (!/^https?:\/\//i.test(finalURL)) finalURL = "https://" + finalURL;
-      const width = Math.max(200, parseInt(widthInput.value, 10) || this.sidebar._getWidth());
-      const userContextId = containerSelect ? parseInt(containerSelect.value, 10) : 0;
-
-      const opts = {
-        width,
-        mobileUA: mobileCheck.checked,
-        zoom: parseFloat(zoomInput.value) || 1.0,
-        autoReloadInterval: parseInt(reloadSelect.value, 10) || 0,
-        cssSelector: cssInput.value.trim(),
-        keybinding: keyInput.value.trim(),
-        tooltipMode: tooltipSelect.value,
-        loadOnStartup: loadStartupCheck.checked,
-        unloadOnClose: unloadCloseCheck.checked,
-        customTitle: customTitleInput.value.trim(),
-        customIcon: customIconInput.value.trim(),
-      };
-
-      if (isEdit) {
-        panel.width = opts.width;
-        panel.mobileUA = opts.mobileUA;
-        panel.zoom = opts.zoom;
-        panel.autoReloadInterval = opts.autoReloadInterval;
-        panel.cssSelector = opts.cssSelector;
-        panel.keybinding = opts.keybinding;
-        panel.tooltipMode = opts.tooltipMode;
-        panel.loadOnStartup = opts.loadOnStartup;
-        panel.unloadOnClose = opts.unloadOnClose;
-        panel.customTitle = opts.customTitle;
-        panel.customIcon = opts.customIcon;
-        if (opts.customTitle) panel.label = opts.customTitle;
-        if (opts.customIcon) panel.icon = opts.customIcon;
-        this.sidebar.panelManager.editPanel(panel, finalURL, null, null, userContextId);
-      } else {
-        this.sidebar.panelManager.addPanel(finalURL, opts.customTitle || null, opts.customIcon || null, userContextId, opts);
-      }
-      popup.hidePopup();
-    });
-    btnRow.append(cancelBtn, applyBtn);
-    content.appendChild(btnRow);
-
-    popup.appendChild(content);
-    popup.addEventListener("popuphidden", () => { popup.remove(); this._editPanel = null; });
-
-    const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
-    popupSet.appendChild(popup);
-    this._editPanel = popup;
-    popup.openPopup(anchor, "before_start", 0, 0, false, false);
-  }
-
-  // ── Global Settings Dialog ────────────────────────────────────
-
-  showSettings(anchor) {
-    this._closeAll();
-    const s = this.sidebar;
-    const xul = (tag, attrs = {}) => {
-      const el = this.doc.createXULElement(tag);
-      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-      return el;
-    };
-    const html = (tag, attrs = {}) => {
-      const el = this.doc.createElementNS("http://www.w3.org/1999/xhtml", tag);
-      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-      return el;
-    };
-    const label = (text) => xul("label", { value: text, class: "zen-settings-label" });
-    const row = (...children) => {
-      const r = xul("hbox", { class: "zen-settings-row", align: "center" });
-      children.forEach((c) => r.appendChild(c));
-      return r;
-    };
-
-    const popup = xul("panel", {
-      id: "zen-settings-global-panel",
-      type: "arrow",
-      class: "zen-settings-popup",
-      role: "dialog",
-      noautohide: "false",
-    });
-    const content = xul("vbox", { class: "zen-settings-content" });
-    content.appendChild(xul("label", { value: "Sidebar Settings", class: "zen-settings-title" }));
-
-    // Auto-hide
-    const autoHideCheck = xul("checkbox", { label: "Auto-Hide Sidebar", class: "zen-settings-check" });
-    if (s._autoHide) autoHideCheck.setAttribute("checked", "true");
-    content.appendChild(autoHideCheck);
-
-    const autoHideDelayInput = html("input", {
-      type: "number", min: "100", max: "5000", step: "100",
-      value: String(s._autoHideDelay), class: "zen-settings-input zen-settings-input-short",
-    });
-    content.appendChild(row(label("Hide Delay (ms)"), autoHideDelayInput));
-
-    const autoHideModeSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const hmPopup = xul("menupopup");
-    for (const m of ["slide", "overlay"]) {
-      hmPopup.appendChild(xul("menuitem", { value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }));
-    }
-    autoHideModeSelect.appendChild(hmPopup);
-    autoHideModeSelect.value = s._autoHideMode;
-    content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
-
-    // Padding
-    const paddingInput = html("input", {
-      type: "number", min: "0", max: "24", step: "2",
-      value: String(s._padding), class: "zen-settings-input zen-settings-input-short",
-    });
-    content.appendChild(row(label("Panel Padding"), paddingInput));
-
-    // Container indicator position
-    const indicatorSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const ciPopup = xul("menupopup");
-    for (const pos of ["bottom-right", "bottom-left", "top-right", "top-left", "left", "right", "top", "bottom"]) {
-      ciPopup.appendChild(xul("menuitem", { value: pos, label: pos }));
-    }
-    indicatorSelect.appendChild(ciPopup);
-    indicatorSelect.value = s._containerIndicatorPosition;
-    content.appendChild(row(label("Container Indicator"), indicatorSelect));
-
-    // Animations
-    const animCheck = xul("checkbox", { label: "Animations", class: "zen-settings-check" });
-    if (s._animations) animCheck.setAttribute("checked", "true");
-    content.appendChild(animCheck);
-
-    // Auto-hide nav buttons
-    const navBtnCheck = xul("checkbox", { label: "Auto-hide Nav Buttons", class: "zen-settings-check" });
-    if (s._autoHideNavButtons) navBtnCheck.setAttribute("checked", "true");
-    content.appendChild(navBtnCheck);
-
-    // Default tooltip mode
-    const tooltipSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const ttPopup = xul("menupopup");
-    for (const opt of ["title", "url", "both", "off"]) {
-      ttPopup.appendChild(xul("menuitem", { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) }));
-    }
-    tooltipSelect.appendChild(ttPopup);
-    tooltipSelect.value = s._tooltipDefault;
-    content.appendChild(row(label("Default Tooltip"), tooltipSelect));
-
-    // Buttons
-    const btnRow = xul("hbox", { class: "zen-settings-btn-row", pack: "end" });
-    const cancelBtn = html("button", { class: "zen-settings-btn" });
-    cancelBtn.textContent = "Cancel";
-    cancelBtn.addEventListener("click", () => popup.hidePopup());
-    const applyBtn = html("button", { class: "zen-settings-btn zen-settings-btn-primary" });
-    applyBtn.textContent = "Apply";
-    applyBtn.addEventListener("click", () => {
-      s._autoHide = autoHideCheck.checked;
-      s._autoHideDelay = parseInt(autoHideDelayInput.value, 10) || 300;
-      s._autoHideMode = autoHideModeSelect.value;
-      s._padding = parseInt(paddingInput.value, 10) || 8;
-      s._containerIndicatorPosition = indicatorSelect.value;
-      s._animations = animCheck.checked;
-      s._autoHideNavButtons = navBtnCheck.checked;
-      s._tooltipDefault = tooltipSelect.value;
-      s._savePrefs();
-      s._applyVisualPrefs();
-      popup.hidePopup();
-    });
-    btnRow.append(cancelBtn, applyBtn);
-    content.appendChild(btnRow);
-
-    popup.appendChild(content);
-    popup.addEventListener("popuphidden", () => { popup.remove(); this._settingsPanel = null; });
-
-    const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
-    popupSet.appendChild(popup);
-    this._settingsPanel = popup;
-    popup.openPopup(anchor, "before_start", 0, 0, false, false);
-  }
-
-  _closeAll() {
-    if (this._editPanel) { try { this._editPanel.hidePopup(); } catch {} }
-    if (this._settingsPanel) { try { this._settingsPanel.hidePopup(); } catch {} }
-  }
-}
-
-  // ═══════════════════════════════════════════════════════════════
   // ZenSidebar
   // ═══════════════════════════════════════════════════════════════
 
 
 const PREF_MODE = "zen.sidebar.mode";
 const PREF_WIDTH = "zen.sidebar.width";
-const PREF_AUTO_HIDE = "zen.sidebar.autoHide";
-const PREF_AUTO_HIDE_DELAY = "zen.sidebar.autoHideDelay";
-const PREF_AUTO_HIDE_MODE = "zen.sidebar.autoHideMode";
-const PREF_PADDING = "zen.sidebar.padding";
-const PREF_CONTAINER_INDICATOR = "zen.sidebar.containerIndicatorPosition";
-const PREF_ANIMATIONS = "zen.sidebar.animations";
-const PREF_AUTO_HIDE_NAV = "zen.sidebar.autoHideNavButtons";
-const PREF_TOOLTIP_DEFAULT = "zen.sidebar.tooltipDefault";
 const SIDEBAR_DEFAULT_WIDTH = 400;
 const TOOLBAR_WIDTH = 48;
 
@@ -1134,18 +562,8 @@ class ZenSidebar {
     this.doc = win.document;
     this.panelManager = new PanelManager(this);
     this.toolbar = new Toolbar(this);
-    this.settingsDialog = new SettingsDialog(this);
     this._panelOpen = false;
     this._mode = "overlay";
-    // Global settings
-    this._autoHide = false;
-    this._autoHideDelay = 300;
-    this._autoHideMode = "slide";
-    this._padding = 8;
-    this._containerIndicatorPosition = "bottom-right";
-    this._animations = true;
-    this._autoHideNavButtons = false;
-    this._tooltipDefault = "title";
   }
 
   init() {
@@ -1153,7 +571,6 @@ class ZenSidebar {
     this._loadPrefs();
     this._buildDOM();
     this._injectInlineCSS();
-    this._applyVisualPrefs();
     this._registerKeybinding();
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
@@ -1198,18 +615,12 @@ class ZenSidebar {
     const fwdBtn = this._navBtn("zen-sb-forward", "Forward", "chrome://global/skin/icons/arrow-right.svg", () => this._navAction("forward"));
     const reloadBtn = this._navBtn("zen-sb-reload", "Reload", "chrome://global/skin/icons/reload.svg", () => this._navAction("reload"));
     const homeBtn = this._navBtn("zen-sb-home", "Go to panel URL", "chrome://browser/skin/home.svg", () => this._navAction("home"));
-    const zoomOutBtn = this._navBtn("zen-sb-zoom-out", "Zoom Out", "chrome://global/skin/icons/minus.svg", () => this._zoomAction("out"));
-    const zoomResetBtn = this._navBtn("zen-sb-zoom-reset", "Reset Zoom", null, () => this._zoomAction("reset"));
-    zoomResetBtn.setAttribute("label", "100%");
-    zoomResetBtn.classList.add("zen-sb-zoom-label");
-    const zoomInBtn = this._navBtn("zen-sb-zoom-in", "Zoom In", "chrome://global/skin/icons/plus.svg", () => this._zoomAction("in"));
     const spacer = this._el("spacer", { flex: "1" });
     const modeBtn = this._navBtn("zen-sb-mode", "Toggle overlay/resize", null, () => this.toggleMode());
     modeBtn.setAttribute("data-mode", this._mode);
     const closeBtn = this._navBtn("zen-sb-close", "Close panel", "chrome://global/skin/icons/close.svg", () => this.collapsePanel());
     closeBtn.classList.add("zen-sb-close-btn");
-    this._zoomResetBtn = zoomResetBtn;
-    this._navBar.append(backBtn, fwdBtn, reloadBtn, homeBtn, spacer, zoomOutBtn, zoomResetBtn, zoomInBtn, modeBtn, closeBtn);
+    this._navBar.append(backBtn, fwdBtn, reloadBtn, homeBtn, spacer, modeBtn, closeBtn);
 
     this._panelContainer = this._el("vbox", { id: "zen-sidebar-panel-container", flex: "1" });
     this._panelArea.append(this._navBar, this._panelContainer);
@@ -1242,25 +653,6 @@ class ZenSidebar {
     }
   }
 
-  _zoomAction(action) {
-    const panel = this.panelManager.activePanel;
-    if (!panel) return;
-    switch (action) {
-      case "in": panel.zoomIn(); break;
-      case "out": panel.zoomOut(); break;
-      case "reset": panel.resetZoom(); break;
-    }
-    this._updateZoomLabel();
-  }
-
-  _updateZoomLabel() {
-    const panel = this.panelManager.activePanel;
-    if (this._zoomResetBtn) {
-      const pct = Math.round((panel?.zoom || 1.0) * 100);
-      this._zoomResetBtn.setAttribute("label", pct + "%");
-    }
-  }
-
   updateNavBarVisibility() {
     const panel = this.panelManager.activePanel;
     if (!panel) return;
@@ -1268,15 +660,6 @@ class ZenSidebar {
       this._navBar.setAttribute("collapsed", "true");
     } else {
       this._navBar.removeAttribute("collapsed");
-    }
-    // Auto-hide back/forward when not applicable
-    if (this._autoHideNavButtons && panel._browser) {
-      const backBtn = this.doc.getElementById("zen-sb-back");
-      const fwdBtn = this.doc.getElementById("zen-sb-forward");
-      try {
-        if (backBtn) backBtn.disabled = !panel._browser.canGoBack;
-        if (fwdBtn) fwdBtn.disabled = !panel._browser.canGoForward;
-      } catch {}
     }
   }
 
@@ -1295,7 +678,6 @@ class ZenSidebar {
 
     this._applyMode();
     this.updateNavBarVisibility();
-    this._updateZoomLabel();
     if (panel) panel.load();
   }
 
@@ -1307,13 +689,6 @@ class ZenSidebar {
     this._sidebarBox.style.width = "";
     this._clearResize();
     this.toolbar.clearActive();
-    // Unload panels that have unloadOnClose enabled
-    for (const panel of this.panelManager.panels) {
-      if (panel.unloadOnClose && panel.isLoaded) {
-        panel.unload();
-        this.toolbar.updateUnloadedState(panel);
-      }
-    }
   }
 
   switchToPanel(panel) {
@@ -1326,11 +701,65 @@ class ZenSidebar {
     this.expandPanel(panel);
   }
 
-  // ── Add/Edit Panel ─────────────────────────────────────────────
+  // ── Add/Edit Panel (using Services.prompt - reliable) ─────────────
 
-  showAddPanelForm(editPanel = null, anchor = null) {
-    const anchorEl = anchor || this.toolbar._addBtn || this._sidebarBox;
-    this.settingsDialog.showEditPanel(editPanel, anchorEl);
+  showAddPanelForm(editPanel = null) {
+    const isEdit = !!editPanel;
+
+    // 1. URL
+    const url = { value: isEdit ? editPanel.url : "https://" };
+    const urlOk = Services.prompt.prompt(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      "Web Page URL:", url, null, { value: false }
+    );
+    if (!urlOk || !url.value) return;
+
+    let finalURL = url.value.trim();
+    if (!/^https?:\/\//i.test(finalURL)) finalURL = "https://" + finalURL;
+
+    // 2. Width
+    const widthStr = { value: String(isEdit ? (editPanel.width || this._getWidth()) : this._getWidth()) };
+    const widthOk = Services.prompt.prompt(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      "Panel Width (200-800):", widthStr, null, { value: false }
+    );
+    if (!widthOk) return;
+    const width = Math.max(200, Math.min(800, parseInt(widthStr.value, 10) || this._getWidth()));
+
+    // 3. Container
+    const containers = this.panelManager.getContainers();
+    let userContextId = 0;
+    if (containers.length > 0) {
+      const names = ["No Container", ...containers.map((c) => c.name)];
+      const ids = [0, ...containers.map((c) => c.userContextId)];
+      const selected = { value: isEdit ? Math.max(0, ids.indexOf(editPanel.userContextId || 0)) : 0 };
+      const cOk = Services.prompt.select(
+        this.win, "Container",
+        "Open this panel in a container:", names, selected
+      );
+      if (!cOk) return;
+      userContextId = ids[selected.value];
+    }
+
+    // 4. Mobile UA
+    const mobileUA = { value: isEdit ? editPanel.mobileUA !== false : true };
+    Services.prompt.confirmCheck(
+      this.win, isEdit ? "Edit Panel" : "Add Panel",
+      `URL: ${finalURL}\nWidth: ${width}`,
+      "Use Mobile User Agent", mobileUA
+    );
+
+    // Apply
+    if (isEdit) {
+      editPanel.width = width;
+      editPanel.mobileUA = mobileUA.value;
+      this.panelManager.editPanel(editPanel, finalURL, null, null, userContextId);
+    } else {
+      this.panelManager.addPanel(finalURL, null, null, userContextId, {
+        width,
+        mobileUA: mobileUA.value,
+      });
+    }
   }
 
   // ── Mode Toggle ───────────────────────────────────────────────────
@@ -1367,51 +796,6 @@ class ZenSidebar {
   _clearResize() {
     const appcontent = this.doc.getElementById("appcontent");
     if (appcontent) appcontent.style.marginRight = "";
-  }
-
-  _applyVisualPrefs() {
-    if (!this._sidebarBox) return;
-    this._sidebarBox.style.setProperty("--zen-sidebar-padding", this._padding + "px");
-    this._sidebarBox.setAttribute("data-indicator-pos", this._containerIndicatorPosition);
-    if (!this._animations) {
-      this._sidebarBox.setAttribute("data-no-animations", "true");
-    } else {
-      this._sidebarBox.removeAttribute("data-no-animations");
-    }
-    this._setupAutoHide();
-  }
-
-  // ── Auto-Hide ──────────────────────────────────────────────────
-
-  _setupAutoHide() {
-    // Remove old listeners
-    if (this._autoHideEnterHandler) {
-      this._sidebarBox.removeEventListener("mouseenter", this._autoHideEnterHandler);
-      this._sidebarBox.removeEventListener("mouseleave", this._autoHideLeaveHandler);
-      this._autoHideEnterHandler = null;
-      this._autoHideLeaveHandler = null;
-    }
-    if (this._autoHideTimer) {
-      clearTimeout(this._autoHideTimer);
-      this._autoHideTimer = null;
-    }
-
-    if (!this._autoHide) return;
-
-    this._autoHideLeaveHandler = () => {
-      if (!this._panelOpen) return;
-      this._autoHideTimer = setTimeout(() => {
-        if (this._panelOpen) this.collapsePanel();
-      }, this._autoHideDelay);
-    };
-    this._autoHideEnterHandler = () => {
-      if (this._autoHideTimer) {
-        clearTimeout(this._autoHideTimer);
-        this._autoHideTimer = null;
-      }
-    };
-    this._sidebarBox.addEventListener("mouseleave", this._autoHideLeaveHandler);
-    this._sidebarBox.addEventListener("mouseenter", this._autoHideEnterHandler);
   }
 
   // ── Drag Handle Resize (saves per-panel width) ─────────────────────
@@ -1462,7 +846,6 @@ class ZenSidebar {
 
   _registerKeybinding() {
     this._keyHandler = (e) => {
-      // Global toggle: Ctrl+Shift+E
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
         if (this._panelOpen) {
@@ -1471,32 +854,9 @@ class ZenSidebar {
           const active = this.panelManager.activePanel;
           if (active) this.switchToPanel(active);
         }
-        return;
-      }
-      // Per-panel shortcuts
-      for (const panel of this.panelManager.panels) {
-        if (!panel.keybinding) continue;
-        if (this._matchKeybinding(e, panel.keybinding)) {
-          e.preventDefault();
-          this.switchToPanel(panel);
-          return;
-        }
       }
     };
     this.win.addEventListener("keydown", this._keyHandler);
-  }
-
-  _matchKeybinding(event, binding) {
-    const parts = binding.toLowerCase().split("+");
-    const key = parts.pop();
-    const needCtrl = parts.includes("ctrl");
-    const needShift = parts.includes("shift");
-    const needAlt = parts.includes("alt");
-    if (needCtrl !== (event.ctrlKey || event.metaKey)) return false;
-    if (needShift !== event.shiftKey) return false;
-    if (needAlt !== event.altKey) return false;
-    const eventKey = event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
-    return eventKey === key;
   }
 
   _removeKeybinding() {
@@ -1506,27 +866,12 @@ class ZenSidebar {
   // ── Preferences ───────────────────────────────────────────────────
 
   _loadPrefs() {
-    try { this._mode = Services.prefs.getStringPref(PREF_MODE, "overlay") || "overlay"; } catch { this._mode = "overlay"; }
-    try { this._autoHide = Services.prefs.getBoolPref(PREF_AUTO_HIDE, false); } catch { this._autoHide = false; }
-    try { this._autoHideDelay = Services.prefs.getIntPref(PREF_AUTO_HIDE_DELAY, 300); } catch { this._autoHideDelay = 300; }
-    try { this._autoHideMode = Services.prefs.getStringPref(PREF_AUTO_HIDE_MODE, "slide") || "slide"; } catch { this._autoHideMode = "slide"; }
-    try { this._padding = Services.prefs.getIntPref(PREF_PADDING, 8); } catch { this._padding = 8; }
-    try { this._containerIndicatorPosition = Services.prefs.getStringPref(PREF_CONTAINER_INDICATOR, "bottom-right") || "bottom-right"; } catch { this._containerIndicatorPosition = "bottom-right"; }
-    try { this._animations = Services.prefs.getBoolPref(PREF_ANIMATIONS, true); } catch { this._animations = true; }
-    try { this._autoHideNavButtons = Services.prefs.getBoolPref(PREF_AUTO_HIDE_NAV, false); } catch { this._autoHideNavButtons = false; }
-    try { this._tooltipDefault = Services.prefs.getStringPref(PREF_TOOLTIP_DEFAULT, "title") || "title"; } catch { this._tooltipDefault = "title"; }
+    try { this._mode = Services.prefs.getStringPref(PREF_MODE, "overlay") || "overlay"; }
+    catch { this._mode = "overlay"; }
   }
 
   _savePrefs() {
     Services.prefs.setStringPref(PREF_MODE, this._mode);
-    Services.prefs.setBoolPref(PREF_AUTO_HIDE, this._autoHide);
-    Services.prefs.setIntPref(PREF_AUTO_HIDE_DELAY, this._autoHideDelay);
-    Services.prefs.setStringPref(PREF_AUTO_HIDE_MODE, this._autoHideMode);
-    Services.prefs.setIntPref(PREF_PADDING, this._padding);
-    Services.prefs.setStringPref(PREF_CONTAINER_INDICATOR, this._containerIndicatorPosition);
-    Services.prefs.setBoolPref(PREF_ANIMATIONS, this._animations);
-    Services.prefs.setBoolPref(PREF_AUTO_HIDE_NAV, this._autoHideNavButtons);
-    Services.prefs.setStringPref(PREF_TOOLTIP_DEFAULT, this._tooltipDefault);
     this.panelManager.save();
   }
 
@@ -1617,12 +962,6 @@ const CSS_TEXT = `
 }
 .zen-sb-nav-btn:hover {
   background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08)); opacity: 1;
-}
-/* Zoom label button */
-.zen-sb-zoom-label { font-size: 10px; min-width: 36px !important; width: auto !important; }
-.zen-sb-zoom-label .toolbarbutton-icon { display: none; }
-.zen-sb-zoom-label .toolbarbutton-text {
-  display: inline; color: var(--toolbar-color, #fbfbfe); font-size: 10px; opacity: 0.7;
 }
 /* Space before close button */
 .zen-sb-close-btn { margin-inline-start: 6px; }
@@ -1723,12 +1062,6 @@ const CSS_TEXT = `
 .zen-sidebar-panel-icon[data-dragging="true"] {
   opacity: 0.7; cursor: grabbing !important;
 }
-/* Unloaded panel icon */
-.zen-sidebar-panel-icon[data-unloaded="true"] {
-  opacity: 0.35;
-}
-/* Disabled nav buttons */
-.zen-sb-nav-btn[disabled="true"] { opacity: 0.25; pointer-events: none; }
 .zen-sidebar-drag-placeholder {
   width: 36px; min-height: 36px;
   border-radius: 10px;
@@ -1739,128 +1072,6 @@ const CSS_TEXT = `
 
 /* ── Context Menu ──────────────────────────────────────────── */
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
-
-/* ── Settings Gear Button ─────────────────────────────────── */
-#zen-sidebar-settings-btn {
-  appearance: none;
-  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
-  border-radius: 10px; background: transparent; border: none;
-  cursor: pointer; padding: 0; opacity: 0.4;
-  margin: 8px auto; flex-shrink: 0;
-  transition: opacity 0.15s, background 0.15s;
-  -moz-box-pack: center; -moz-box-align: center;
-}
-#zen-sidebar-settings-btn .toolbarbutton-icon {
-  width: 16px; height: 16px;
-  -moz-context-properties: fill; fill: var(--toolbar-color, #fbfbfe);
-}
-#zen-sidebar-settings-btn .toolbarbutton-text { display: none; }
-#zen-sidebar-settings-btn:hover { opacity: 1; background: var(--toolbarbutton-hover-background, rgba(255,255,255,0.08)); }
-
-/* ── Settings Dialog ──────────────────────────────────────── */
-.zen-settings-popup {
-  --panel-background: var(--arrowpanel-background, #2b2a33);
-  --panel-color: var(--arrowpanel-color, #fbfbfe);
-  --panel-border-color: var(--arrowpanel-border-color, rgba(255,255,255,0.1));
-  appearance: none;
-  background: var(--panel-background);
-  color: var(--panel-color);
-  border: 1px solid var(--panel-border-color);
-  border-radius: 12px;
-  padding: 0;
-  min-width: 300px; max-width: 360px;
-  max-height: 80vh;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.zen-settings-content {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 16px;
-  overflow-y: auto; max-height: 70vh;
-}
-.zen-settings-title {
-  font-size: 14px; font-weight: 600;
-  margin-bottom: 4px;
-}
-.zen-settings-label {
-  font-size: 12px; opacity: 0.8;
-  white-space: nowrap; flex-shrink: 0;
-}
-.zen-settings-row {
-  display: flex; align-items: center; gap: 8px;
-  min-height: 28px;
-}
-.zen-settings-row .zen-settings-input,
-.zen-settings-row .zen-settings-menulist {
-  width: auto; flex: 1; min-width: 0;
-}
-.zen-settings-input {
-  background: rgba(255,255,255,0.07);
-  color: var(--panel-color);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  padding: 5px 8px;
-  font-size: 12px;
-  width: 100%;
-  box-sizing: border-box;
-  outline: none;
-  font-family: inherit;
-}
-.zen-settings-input:focus {
-  border-color: var(--zen-primary-color, AccentColor);
-}
-.zen-settings-input-short { width: 80px; flex-shrink: 0; }
-/* XUL checkbox */
-.zen-settings-check {
-  margin: 4px 0;
-  font-size: 12px;
-}
-.zen-settings-check > .checkbox-label { opacity: 0.9; }
-/* XUL menulist (dropdown) */
-.zen-settings-menulist {
-  appearance: none;
-  background: rgba(255,255,255,0.07);
-  color: var(--panel-color, #fbfbfe);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-  min-height: 28px;
-  width: 100%;
-}
-.zen-settings-menulist > .menulist-label-box { flex: 1; }
-.zen-settings-menulist > dropmarker { display: -moz-box; margin-inline-start: 4px; }
-.zen-settings-btn-row {
-  display: flex; gap: 8px; margin-top: 8px;
-  justify-content: flex-end;
-}
-.zen-settings-btn {
-  background: rgba(255,255,255,0.08);
-  color: var(--panel-color);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 6px;
-  padding: 6px 16px;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.zen-settings-btn:hover { background: rgba(255,255,255,0.14); }
-.zen-settings-btn-primary {
-  background: var(--zen-primary-color, AccentColor);
-  border-color: transparent;
-  color: #fff;
-}
-.zen-settings-btn-primary:hover { opacity: 0.9; }
-.zen-settings-btn-small {
-  background: rgba(255,255,255,0.08);
-  color: var(--panel-color);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.zen-settings-btn-small:hover { background: rgba(255,255,255,0.14); }
 `;
 
   // ═══════════════════════════════════════════════════════════════
