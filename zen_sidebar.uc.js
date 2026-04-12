@@ -2052,7 +2052,6 @@ const CSS_TEXT = `
   min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: width;
-  contain: layout style;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
