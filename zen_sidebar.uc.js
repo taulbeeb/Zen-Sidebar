@@ -1589,8 +1589,8 @@ class ZenSidebar {
 
     const effectiveMode = this._getEffectiveMode(panel);
     if (effectiveMode === "overlay") {
-      this._panelArea.style.width = `${panelWidth}px`;
-      this._sidebarBox.style.width = "";
+      // Overlay: entire sidebar box is position:fixed
+      this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
     } else if (this._animations) {
       // Animated resize: suppress transitions, set start, reflow, animate to target
       this._sidebarBox.classList.add("zen-sidebar-no-transition");
@@ -1615,9 +1615,10 @@ class ZenSidebar {
     this._panelArea.style.width = "";
 
     if (collapseMode === "overlay") {
-      // Overlay: panel is fixed, just hide it
+      // Overlay: hide panel, clear width so box goes back to toolbar-only in flow
       this._panelArea.setAttribute("data-collapsed", "true");
       this._dragHandle.style.display = "none";
+      this._sidebarBox.style.width = "";
     } else if (this._animations) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
@@ -1707,13 +1708,8 @@ class ZenSidebar {
     // Adjust widths when switching modes with a panel open
     if (this._panelOpen && panel) {
       const panelWidth = panel.width || this._getWidth();
-      if (effectiveMode === "overlay") {
-        this._panelArea.style.width = `${panelWidth}px`;
-        this._sidebarBox.style.width = "";
-      } else {
-        this._panelArea.style.width = "";
-        this._sidebarBox.style.width = `${panelWidth + this._getToolbarWidth()}px`;
-      }
+      // Both modes set sidebar box width (overlay is position:fixed, resize is in flow)
+      this._sidebarBox.style.width = `${panelWidth + this._getToolbarWidth()}px`;
     }
   }
 
@@ -2081,23 +2077,13 @@ const CSS_TEXT = `
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
-  position: relative;
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
+  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
 }
 #zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
-
-/* Overlay mode: panel floats to the left of the toolbar */
-#zen-sidebar-box[data-panel-open][data-mode="overlay"] #zen-sidebar-panel-area {
-  position: fixed !important; top: 8px; bottom: 8px; z-index: 10000;
-  right: calc(var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px) + 8px);
-  display: flex !important; flex-direction: column;
-  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
-  margin: 0; border-radius: 10px;
-  opacity: 1 !important; pointer-events: auto !important;
-  overflow: hidden;
-}
-/* Hide drag handle in overlay since panel is fixed-positioned */
+/* Hide drag handle in overlay mode */
 #zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
 /* Disable transitions during drag resize */
 #zen-sidebar-box.zen-sidebar-dragging,
