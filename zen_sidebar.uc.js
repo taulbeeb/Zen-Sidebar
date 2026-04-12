@@ -18,7 +18,7 @@ class WebPanel {
     zoom = 1.0, muted = false, loadOnStartup = true, unloadOnClose = false,
     autoReloadInterval = 0, keybinding = "",
     dynamicTitle = true, dynamicFavicon = true, customTitle = "", customIcon = "",
-    cssSelector = "", tooltipMode = "title", unloadTimer = 0 }) {
+    cssSelector = "", tooltipMode = "title" }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
@@ -41,10 +41,8 @@ class WebPanel {
     this.customIcon = customIcon;
     this.cssSelector = cssSelector;
     this.tooltipMode = tooltipMode;
-    this.unloadTimer = unloadTimer; // minutes before inactive panel is unloaded (0 = never)
     this._browser = null;
     this._loaded = false;
-    this._unloadTimerId = null;
   }
 
   createBrowser() {
@@ -190,19 +188,27 @@ class WebPanel {
         this.sidebar.toolbar.updateIcon(this);
       }
     };
-    // Audio detection: poll browser.audioPlaybackActive since the soundplaying
-    // attribute and DOMAudioPlayback events are managed by tabbrowser and don't
-    // fire on standalone <browser> elements outside the tab strip.
-    this._audioPlaying = false;
+    this._onAudioStart = () => {
+      this._audioPlaying = true;
+      this.sidebar.toolbar.updateAudioState(this);
+    };
+    this._onAudioStop = () => {
+      this._audioPlaying = false;
+      this.sidebar.toolbar.updateAudioState(this);
+    };
 
     this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
     this._browser.addEventListener("DOMLinkAdded", this._onLinkAdded);
+    this._browser.addEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    this._browser.addEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
   }
 
   detachBrowserListeners() {
     if (!this._browser) return;
     if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
     if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
+    if (this._onAudioStart) this._browser.removeEventListener("DOMAudioPlaybackStarted", this._onAudioStart);
+    if (this._onAudioStop) this._browser.removeEventListener("DOMAudioPlaybackStopped", this._onAudioStop);
   }
 
   _parseBadge(title) {
@@ -269,7 +275,6 @@ class PanelManager {
       unloadOnClose: opts.unloadOnClose || false,
       customTitle: opts.customTitle || "",
       customIcon: opts.customIcon || "",
-      unloadTimer: opts.unloadTimer || 0,
     });
     this.panels.push(panel);
     panel.createBrowser();
@@ -284,7 +289,6 @@ class PanelManager {
     if (idx === -1) return;
 
     this._stopAutoReload(panel);
-    this._stopUnloadTimer(panel);
     panel.destroy();
     this.panels.splice(idx, 1);
     this.sidebar.toolbar.removeIcon(panel);
@@ -330,11 +334,7 @@ class PanelManager {
   switchTo(panel) {
     if (this._activePanel && this._activePanel !== panel) {
       this._activePanel.hide();
-      // Start unload timer for the panel being deactivated
-      this._startUnloadTimer(this._activePanel);
     }
-    // Stop unload timer for the panel becoming active
-    this._stopUnloadTimer(panel);
     this._activePanel = panel;
     panel.show();
     this.sidebar.toolbar.setActive(panel);
@@ -361,7 +361,6 @@ class PanelManager {
       customIcon: p.customIcon || "",
       cssSelector: p.cssSelector || "",
       tooltipMode: p.tooltipMode || "title",
-      unloadTimer: p.unloadTimer || 0,
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     Services.prefs.setStringPref(PREF_PANELS, JSON.stringify({ panels: data, activeId }));
@@ -394,7 +393,6 @@ class PanelManager {
         customIcon: p.customIcon || "",
         cssSelector: p.cssSelector || "",
         tooltipMode: p.tooltipMode || "title",
-        unloadTimer: p.unloadTimer || 0,
       });
       this.panels.push(panel);
       if (panel.loadOnStartup) {
@@ -414,17 +412,12 @@ class PanelManager {
       }
     }
 
-    // Start auto-reload timers and unload timers for inactive panels
+    // Start auto-reload timers
     for (const panel of this.panels) {
       if (panel.autoReloadInterval > 0 && panel.isLoaded) {
         this._startAutoReload(panel);
       }
-      if (panel.unloadTimer > 0 && panel.isLoaded && panel !== this._activePanel) {
-        this._startUnloadTimer(panel);
-      }
     }
-    // Start the shared audio poll
-    this._startAudioPoll();
   }
 
   _startAutoReload(panel) {
@@ -441,51 +434,6 @@ class PanelManager {
       clearInterval(panel._autoReloadTimerId);
       panel._autoReloadTimerId = null;
     }
-  }
-
-  // ── Unload Timer (inactive panel memory reclaim) ─────────────────
-
-  _startUnloadTimer(panel) {
-    this._stopUnloadTimer(panel);
-    if (panel.unloadTimer > 0 && panel.isLoaded) {
-      panel._unloadTimerId = setTimeout(() => {
-        panel._unloadTimerId = null;
-        if (panel.isLoaded && this._activePanel !== panel) {
-          panel.unload();
-          this.sidebar.toolbar.updateUnloadedState(panel);
-        }
-      }, panel.unloadTimer * 60 * 1000);
-    }
-  }
-
-  _stopUnloadTimer(panel) {
-    if (panel._unloadTimerId) {
-      clearTimeout(panel._unloadTimerId);
-      panel._unloadTimerId = null;
-    }
-  }
-
-  // ── Audio Polling (single shared interval) ───────────────────────
-
-  _startAudioPoll() {
-    if (this._audioPollId) return;
-    this._audioPollId = setInterval(() => {
-      if (this.sidebar.doc.hidden) return; // skip when window is in background
-      for (const panel of this.panels) {
-        if (!panel._browser || !panel.isLoaded) continue;
-        try {
-          const playing = !!panel._browser.audioPlaybackActive;
-          if (playing !== panel._audioPlaying) {
-            panel._audioPlaying = playing;
-            this.sidebar.toolbar.updateAudioState(panel);
-          }
-        } catch {}
-      }
-    }, 2000);
-  }
-
-  _stopAudioPoll() {
-    if (this._audioPollId) { clearInterval(this._audioPollId); this._audioPollId = null; }
   }
 
   // ── Utility ───────────────────────────────────────────────────────
@@ -902,13 +850,9 @@ class Toolbar {
   _applyContainerColor(btn, panel) {
     if (panel.userContextId > 0) {
       const match = this.sidebar.panelManager.getContainers().find((c) => c.userContextId === panel.userContextId);
-      if (match?.color) {
-        btn.setAttribute("data-container-color", match.color);
-        btn.style.setProperty("--container-color", CONTAINER_COLORS[match.color] || "transparent");
-      }
+      if (match?.color) btn.setAttribute("data-container-color", match.color);
     } else {
       btn.removeAttribute("data-container-color");
-      btn.style.removeProperty("--container-color");
     }
   }
 
@@ -1085,20 +1029,6 @@ class SettingsDialog {
     if (p.unloadOnClose) unloadCloseCheck.setAttribute("checked", "true");
     content.appendChild(unloadCloseCheck);
 
-    // Unload timer
-    const unloadTimerSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const unloadTimerPopup = xul("menupopup");
-    const unloadTimerOpts = [
-      [0, "Never"], [5, "5 minutes"], [10, "10 minutes"],
-      [15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"],
-    ];
-    for (const [val, text] of unloadTimerOpts) {
-      unloadTimerPopup.appendChild(xul("menuitem", { value: String(val), label: text }));
-    }
-    unloadTimerSelect.appendChild(unloadTimerPopup);
-    unloadTimerSelect.value = String(p.unloadTimer || 0);
-    content.appendChild(row(label("Unload After Inactive"), unloadTimerSelect));
-
     // Title/Favicon overrides
     const customTitleInput = html("input", {
       type: "text", placeholder: "Auto (from page)",
@@ -1138,7 +1068,6 @@ class SettingsDialog {
         tooltipMode: tooltipSelect.value,
         loadOnStartup: loadStartupCheck.checked,
         unloadOnClose: unloadCloseCheck.checked,
-        unloadTimer: parseInt(unloadTimerSelect.value, 10) || 0,
         customTitle: customTitleInput.value.trim(),
         customIcon: customIconInput.value.trim(),
       };
@@ -1153,17 +1082,11 @@ class SettingsDialog {
         panel.tooltipMode = opts.tooltipMode;
         panel.loadOnStartup = opts.loadOnStartup;
         panel.unloadOnClose = opts.unloadOnClose;
-        panel.unloadTimer = opts.unloadTimer;
         panel.customTitle = opts.customTitle;
         panel.customIcon = opts.customIcon;
         if (opts.customTitle) panel.label = opts.customTitle;
         if (opts.customIcon) panel.icon = opts.customIcon;
         this.sidebar.panelManager.editPanel(panel, finalURL, null, null, userContextId);
-        // Restart unload timer if the setting changed
-        this.sidebar.panelManager._stopUnloadTimer(panel);
-        if (panel !== this.sidebar.panelManager.activePanel) {
-          this.sidebar.panelManager._startUnloadTimer(panel);
-        }
       } else {
         this.sidebar.panelManager.addPanel(finalURL, opts.customTitle || null, opts.customIcon || null, userContextId, opts);
       }
@@ -1173,7 +1096,7 @@ class SettingsDialog {
     content.appendChild(btnRow);
 
     popup.appendChild(content);
-    popup.addEventListener("popuphidden", (e) => { if (e.target !== popup) return; popup.remove(); this._editPanel = null; });
+    popup.addEventListener("popuphidden", () => { popup.remove(); this._editPanel = null; });
 
     const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
     popupSet.appendChild(popup);
@@ -1234,25 +1157,17 @@ class SettingsDialog {
     content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
 
     // Padding
-    // Sidebar size
-    const sizeSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const sizePopup = xul("menupopup");
-    for (const [val, lbl] of [["smallest","Smallest"],["small","Small"],["medium","Medium"],["large","Large"],["largest","Largest"]]) {
-      sizePopup.appendChild(xul("menuitem", { value: val, label: lbl }));
-    }
-    sizeSelect.appendChild(sizePopup);
-    sizeSelect.value = s._sidebarSize;
-    content.appendChild(row(label("Sidebar Size"), sizeSelect));
+    const paddingInput = html("input", {
+      type: "number", min: "0", max: "24", step: "2",
+      value: String(s._padding), class: "zen-settings-input zen-settings-input-short",
+    });
+    content.appendChild(row(label("Panel Padding"), paddingInput));
 
-    // Container indicator style
+    // Container indicator position
     const indicatorSelect = xul("menulist", { class: "zen-settings-menulist" });
     const ciPopup = xul("menupopup");
-    for (const [val, lbl] of [
-      ["dot", "Dot"], ["outline", "Outline"], ["outline-left", "Outline Left"],
-      ["outline-top", "Outline Top"], ["outline-bottom", "Outline Bottom"],
-      ["outline-right", "Outline Right"], ["none", "None"],
-    ]) {
-      ciPopup.appendChild(xul("menuitem", { value: val, label: lbl }));
+    for (const pos of ["bottom-right", "bottom-left", "top-right", "top-left", "left", "right", "top", "bottom"]) {
+      ciPopup.appendChild(xul("menuitem", { value: pos, label: pos }));
     }
     indicatorSelect.appendChild(ciPopup);
     indicatorSelect.value = s._containerIndicatorPosition;
@@ -1278,36 +1193,6 @@ class SettingsDialog {
     tooltipSelect.value = s._tooltipDefault;
     content.appendChild(row(label("Default Tooltip"), tooltipSelect));
 
-    // Color helpers
-    const rgbaToHex = (rgba) => {
-      const m = rgba.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\s*\)/);
-      if (!m) return { hex: "#000000", opacity: 10 };
-      const hex = "#" + [m[1],m[2],m[3]].map(n => parseInt(n).toString(16).padStart(2,"0")).join("");
-      return { hex, opacity: Math.round((parseFloat(m[4] ?? 1) * 100)) };
-    };
-    const hexToRgba = (hex, opacity) => {
-      const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
-      return `rgba(${r},${g},${b},${opacity / 100})`;
-    };
-
-    // Toolbar color
-    const tbParsed = rgbaToHex(s._toolbarColor);
-    const tbColorInput = html("input", { type: "color", value: tbParsed.hex, class: "zen-settings-color" });
-    const tbOpacityInput = html("input", { type: "range", min: "0", max: "100", value: String(tbParsed.opacity), class: "zen-settings-range" });
-    const tbOpacityLabel = xul("label", { value: tbParsed.opacity + "%", class: "zen-settings-label" });
-    tbOpacityInput.addEventListener("input", () => { tbOpacityLabel.setAttribute("value", tbOpacityInput.value + "%"); });
-    content.appendChild(label("Toolbar Color"));
-    content.appendChild(row(tbColorInput, tbOpacityInput, tbOpacityLabel));
-
-    // Nav bar color
-    const nbParsed = rgbaToHex(s._navbarColor);
-    const nbColorInput = html("input", { type: "color", value: nbParsed.hex, class: "zen-settings-color" });
-    const nbOpacityInput = html("input", { type: "range", min: "0", max: "100", value: String(nbParsed.opacity), class: "zen-settings-range" });
-    const nbOpacityLabel = xul("label", { value: nbParsed.opacity + "%", class: "zen-settings-label" });
-    nbOpacityInput.addEventListener("input", () => { nbOpacityLabel.setAttribute("value", nbOpacityInput.value + "%"); });
-    content.appendChild(label("Nav Bar Color"));
-    content.appendChild(row(nbColorInput, nbOpacityInput, nbOpacityLabel));
-
     // Buttons
     const btnRow = xul("hbox", { class: "zen-settings-btn-row", pack: "end" });
     const cancelBtn = html("button", { class: "zen-settings-btn" });
@@ -1319,13 +1204,11 @@ class SettingsDialog {
       s._autoHide = autoHideCheck.checked;
       s._autoHideDelay = parseInt(autoHideDelayInput.value, 10) || 300;
       s._autoHideMode = autoHideModeSelect.value;
-      s._sidebarSize = sizeSelect.value;
+      s._padding = parseInt(paddingInput.value, 10) || 8;
       s._containerIndicatorPosition = indicatorSelect.value;
       s._animations = animCheck.checked;
       s._autoHideNavButtons = navBtnCheck.checked;
       s._tooltipDefault = tooltipSelect.value;
-      s._toolbarColor = hexToRgba(tbColorInput.value, parseInt(tbOpacityInput.value, 10));
-      s._navbarColor = hexToRgba(nbColorInput.value, parseInt(nbOpacityInput.value, 10));
       s._savePrefs();
       s._applyVisualPrefs();
       popup.hidePopup();
@@ -1334,7 +1217,7 @@ class SettingsDialog {
     content.appendChild(btnRow);
 
     popup.appendChild(content);
-    popup.addEventListener("popuphidden", (e) => { if (e.target !== popup) return; popup.remove(); this._settingsPanel = null; });
+    popup.addEventListener("popuphidden", () => { popup.remove(); this._settingsPanel = null; });
 
     const popupSet = this.doc.getElementById("mainPopupSet") || this.doc.documentElement;
     popupSet.appendChild(popup);
@@ -1363,23 +1246,8 @@ const PREF_CONTAINER_INDICATOR = "zen.sidebar.containerIndicatorPosition";
 const PREF_ANIMATIONS = "zen.sidebar.animations";
 const PREF_AUTO_HIDE_NAV = "zen.sidebar.autoHideNavButtons";
 const PREF_TOOLTIP_DEFAULT = "zen.sidebar.tooltipDefault";
-const PREF_TOOLBAR_COLOR = "zen.sidebar.toolbarColor";
-const PREF_NAVBAR_COLOR = "zen.sidebar.navbarColor";
 const SIDEBAR_DEFAULT_WIDTH = 400;
 const TOOLBAR_WIDTH = 48;
-const ANIM_DURATION = 200; // ms – sidebar open/close transition time
-const FOCUS_RESUME_INSTANT_MS = 1500; // make the first toggle after app/window re-activation instant
-const SIDEBAR_SIZES = {
-  smallest: { toolbar: 36, icon: 26, img: 14, gap: 2, pad: 4, iconRadius: 7 },
-  small:    { toolbar: 42, icon: 30, img: 16, gap: 3, pad: 6, iconRadius: 8 },
-  medium:   { toolbar: 48, icon: 36, img: 20, gap: 4, pad: 8, iconRadius: 10 },
-  large:    { toolbar: 56, icon: 42, img: 24, gap: 5, pad: 8, iconRadius: 12 },
-  largest:  { toolbar: 64, icon: 48, img: 28, gap: 6, pad: 8, iconRadius: 14 },
-};
-const CONTAINER_COLORS = {
-  blue: "#37adff", turquoise: "#00c79a", green: "#51cd00", yellow: "#ffcb00",
-  orange: "#ff9f00", red: "#ff613d", pink: "#ff4bda", purple: "#af51f5",
-};
 
 class ZenSidebar {
   constructor(win) {
@@ -1394,15 +1262,11 @@ class ZenSidebar {
     this._autoHide = false;
     this._autoHideDelay = 300;
     this._autoHideMode = "slide";
-    this._sidebarSize = "medium";
-    this._containerIndicatorPosition = "dot";
+    this._padding = 8;
+    this._containerIndicatorPosition = "bottom-right";
     this._animations = true;
     this._autoHideNavButtons = false;
     this._tooltipDefault = "title";
-    this._toolbarColor = "rgba(0,0,0,0.1)";
-    this._navbarColor = "transparent";
-    this._collapseTimer = null;
-    this._instantToggleUntil = 0;
   }
 
   init() {
@@ -1412,7 +1276,6 @@ class ZenSidebar {
     this._injectInlineCSS();
     this._applyVisualPrefs();
     this._registerKeybinding();
-    this._registerWindowActivationTracking();
     this._registerContentContextMenu();
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
@@ -1421,7 +1284,6 @@ class ZenSidebar {
 
   destroy() {
     this._removeKeybinding();
-    this._removeWindowActivationTracking();
     this._removeContentContextMenu();
     this._savePrefs();
     for (const el of [this._sidebarBox, this._inlineStyleEl]) {
@@ -1545,70 +1407,28 @@ class ZenSidebar {
 
   get panelOpen() { return this._panelOpen; }
 
-  _shouldAnimateToggle() {
-    return this._animations && Date.now() >= this._instantToggleUntil;
-  }
-
   expandPanel(panel) {
-    // Cancel any pending collapse cleanup
-    if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
     this._panelOpen = true;
-
-    const panelWidth = panel?.width || this._getWidth();
-    const toolbarWidth = this._getToolbarWidth();
-
-    this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
     this._panelArea.removeAttribute("hidden");
-    this._panelArea.removeAttribute("data-collapsed");
     this._dragHandle.style.display = "";
     this._sidebarBox.setAttribute("data-panel-open", "true");
+
+    const width = (panel?.width || this._getWidth()) + TOOLBAR_WIDTH;
+    this._sidebarBox.style.width = `${width}px`;
+
     this._applyMode();
     this.updateNavBarVisibility();
     this._updateZoomLabel();
-
-    if (this._mode === "overlay") {
-      this._panelArea.style.width = `${panelWidth}px`;
-      this._sidebarBox.style.width = "";
-    } else if (this._shouldAnimateToggle()) {
-      // Animated resize: suppress transitions, set start, reflow, animate to target
-      this._sidebarBox.classList.add("zen-sidebar-no-transition");
-      this._sidebarBox.style.width = `${toolbarWidth}px`;
-      this._sidebarBox.getBoundingClientRect();
-      this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-      this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
-    } else {
-      // No animation: just set final width directly
-      this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
-    }
-
     if (panel) panel.load();
   }
 
   collapsePanel() {
-    // Cancel any pending collapse cleanup
-    if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
     this._panelOpen = false;
+    this._panelArea.setAttribute("hidden", "true");
+    this._dragHandle.style.display = "none";
     this._sidebarBox.removeAttribute("data-panel-open");
-    this._panelArea.style.width = "";
-
-    if (this._mode === "overlay") {
-      // Overlay: panel is fixed, just hide it
-      this._panelArea.setAttribute("data-collapsed", "true");
-      this._dragHandle.style.display = "none";
-    } else if (this._shouldAnimateToggle()) {
-      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
-      this._clearResize();
-      this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
-    } else {
-      this._panelArea.setAttribute("hidden", "true");
-      this._dragHandle.style.display = "none";
-      this._sidebarBox.style.width = "";
-      this._clearResize();
-      if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
-        this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
-      }
-    }
-
+    this._sidebarBox.style.width = "";
+    this._clearResize();
     this.toolbar.clearActive();
     // Unload panels that have unloadOnClose enabled
     for (const panel of this.panelManager.panels) {
@@ -1616,17 +1436,6 @@ class ZenSidebar {
         panel.unload();
         this.toolbar.updateUnloadedState(panel);
       }
-    }
-  }
-
-  _finishCollapse() {
-    // Skip if panel was re-opened before cleanup fired
-    if (this._panelOpen) return;
-    this._panelArea.setAttribute("data-collapsed", "true");
-    this._dragHandle.style.display = "none";
-    this._sidebarBox.style.width = "";
-    if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
-      this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
     }
   }
 
@@ -1675,7 +1484,7 @@ class ZenSidebar {
 
   _pushContent() {
     const appcontent = this.doc.getElementById("appcontent");
-    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + this._getToolbarWidth();
+    const w = parseInt(this._sidebarBox.style.width, 10) || this._getWidth() + TOOLBAR_WIDTH;
     if (appcontent) appcontent.style.marginRight = `${w}px`;
   }
 
@@ -1686,18 +1495,8 @@ class ZenSidebar {
 
   _applyVisualPrefs() {
     if (!this._sidebarBox) return;
-    // Sidebar size
-    const sz = SIDEBAR_SIZES[this._sidebarSize] || SIDEBAR_SIZES.medium;
-    this._sidebarBox.style.setProperty("--zen-toolbar-width", sz.toolbar + "px");
-    this._sidebarBox.style.setProperty("--zen-icon-size", sz.icon + "px");
-    this._sidebarBox.style.setProperty("--zen-icon-img", sz.img + "px");
-    this._sidebarBox.style.setProperty("--zen-icon-gap", sz.gap + "px");
-    this._sidebarBox.style.setProperty("--zen-toolbar-pad", sz.pad + "px");
-    this._sidebarBox.style.setProperty("--zen-icon-radius", sz.iconRadius + "px");
+    this._sidebarBox.style.setProperty("--zen-sidebar-padding", this._padding + "px");
     this._sidebarBox.setAttribute("data-indicator-pos", this._containerIndicatorPosition);
-    // Colors
-    this._sidebarBox.style.setProperty("--zen-toolbar-bg", this._toolbarColor);
-    this._sidebarBox.style.setProperty("--zen-navbar-bg", this._navbarColor);
     if (!this._animations) {
       this._sidebarBox.setAttribute("data-no-animations", "true");
     } else {
@@ -1707,25 +1506,10 @@ class ZenSidebar {
   }
 
   // ── Auto-Hide ──────────────────────────────────────────────────
-  // When enabled, the toolbar auto-hides after the mouse leaves.
-  // If a panel is open, the panel stays visible — only the toolbar
-  // strip slides away. If no panel is open, the entire sidebar box
-  // collapses so page content fills the full width.
-  // Hovering the right-edge trigger strip reveals the toolbar.
-  // Settings dialogs prevent auto-hide while open.
-
-  _autoHideToolbar() {
-    this.toolbar._toolbar.setAttribute("data-auto-hide-hidden", "true");
-    // If no panel is open, collapse the sidebar box entirely
-    if (!this._panelOpen) {
-      this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
-    }
-  }
-
-  _autoShowToolbar() {
-    this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
-    this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
-  }
+  // When enabled, the entire sidebar collapses to a thin invisible
+  // trigger strip on the right edge. Hovering over it reveals the
+  // full sidebar (toolbar + panel). Mousing away hides everything
+  // again after the configured delay.
 
   _setupAutoHide() {
     // Clean up previous
@@ -1746,8 +1530,6 @@ class ZenSidebar {
 
     if (!this._autoHide) {
       this._sidebarBox.removeAttribute("data-auto-hide");
-      this._sidebarBox.removeAttribute("data-auto-hide-collapsed");
-      this.toolbar._toolbar.removeAttribute("data-auto-hide-hidden");
       this._sidebarBox.style.display = "";
       return;
     }
@@ -1761,30 +1543,35 @@ class ZenSidebar {
       this._autoHideTrigger = this.doc.getElementById("zen-sidebar-autohide-trigger");
     }
 
-    this._sidebarBox.setAttribute("data-auto-hide", "true");
-    this._sidebarBox.style.display = "";
     // Start hidden
-    this._autoHideToolbar();
+    this._sidebarBox.setAttribute("data-auto-hide", "true");
+    this._sidebarBox.style.display = "none";
 
-    // Trigger strip: hover to reveal toolbar
+    // Trigger strip: hover to reveal just the toolbar
     this._autoHideTrigger.addEventListener("mouseenter", () => {
-      this._autoShowToolbar();
+      this._sidebarBox.style.display = "";
     });
 
-    // Sidebar: mouse leave to hide toolbar after delay
+    // Sidebar: mouse leave to hide after delay
     this._autoHideLeaveHandler = () => {
-      // Don't auto-hide while a settings dialog is open
-      if (this.settingsDialog._editPanel || this.settingsDialog._settingsPanel) return;
       if (this._autoHideTimer) clearTimeout(this._autoHideTimer);
       this._autoHideTimer = setTimeout(() => {
         this._autoHideTimer = null;
-        if (this.settingsDialog._editPanel || this.settingsDialog._settingsPanel) return;
-        this._autoHideToolbar();
+        // Collapse panel if open
+        if (this._panelOpen) {
+          this._panelOpen = false;
+          this._panelArea.setAttribute("hidden", "true");
+          this._dragHandle.style.display = "none";
+          this._sidebarBox.removeAttribute("data-panel-open");
+          this._sidebarBox.style.width = "";
+          this._clearResize();
+        }
+        // Hide the entire sidebar
+        this._sidebarBox.style.display = "none";
       }, this._autoHideDelay);
     };
 
     this._autoHideEnterHandler = () => {
-      // Only cancel the hide timer — don't reveal toolbar (trigger strip does that)
       if (this._autoHideTimer) {
         clearTimeout(this._autoHideTimer);
         this._autoHideTimer = null;
@@ -1805,10 +1592,6 @@ class ZenSidebar {
     // Disable pointer events on panel content to prevent browser element stealing mouse
     this._panelArea.style.pointerEvents = "none";
     this._sidebarBox.style.userSelect = "none";
-    // Suppress transitions during drag to prevent jitter
-    this._sidebarBox.classList.add("zen-sidebar-dragging");
-    const appcontent = this.doc.getElementById("appcontent");
-    if (appcontent) appcontent.style.transition = "none";
 
     let pendingFrame = null;
 
@@ -1818,7 +1601,7 @@ class ZenSidebar {
       pendingFrame = this.win.requestAnimationFrame(() => {
         pendingFrame = null;
         const delta = startX - e.clientX;
-        const totalW = Math.max(200 + this._getToolbarWidth(), startWidth + delta);
+        const totalW = Math.max(200 + TOOLBAR_WIDTH, startWidth + delta);
         this._sidebarBox.style.width = `${totalW}px`;
         if (this._mode === "resize") this._pushContent();
       });
@@ -1827,14 +1610,12 @@ class ZenSidebar {
       this.doc.removeEventListener("mousemove", onMouseMove);
       this.doc.removeEventListener("mouseup", onMouseUp);
       if (pendingFrame) this.win.cancelAnimationFrame(pendingFrame);
-      // Restore pointer events and transitions
+      // Restore pointer events
       this._panelArea.style.pointerEvents = "";
       this._sidebarBox.style.userSelect = "";
-      this._sidebarBox.classList.remove("zen-sidebar-dragging");
-      if (appcontent) appcontent.style.transition = "";
       // Save to active panel
       const totalW = parseInt(this._sidebarBox.style.width, 10) || 0;
-      const panelW = totalW - this._getToolbarWidth();
+      const panelW = totalW - TOOLBAR_WIDTH;
       const active = this.panelManager.activePanel;
       if (active && panelW > 0) {
         active.width = panelW;
@@ -1888,22 +1669,6 @@ class ZenSidebar {
 
   _removeKeybinding() {
     if (this._keyHandler) this.win.removeEventListener("keydown", this._keyHandler);
-  }
-
-  _registerWindowActivationTracking() {
-    this._windowActivationHandler = (event) => {
-      if (event?.type === "visibilitychange" && this.doc.hidden) return;
-      this._instantToggleUntil = Date.now() + FOCUS_RESUME_INSTANT_MS;
-    };
-    this.win.addEventListener("focus", this._windowActivationHandler, true);
-    this.doc.addEventListener("visibilitychange", this._windowActivationHandler, true);
-  }
-
-  _removeWindowActivationTracking() {
-    if (!this._windowActivationHandler) return;
-    this.win.removeEventListener("focus", this._windowActivationHandler, true);
-    this.doc.removeEventListener("visibilitychange", this._windowActivationHandler, true);
-    this._windowActivationHandler = null;
   }
 
   // ── Content Context Menu (right-click on web pages) ───────────────
@@ -1998,16 +1763,11 @@ class ZenSidebar {
     try { this._autoHide = Services.prefs.getBoolPref(PREF_AUTO_HIDE, false); } catch { this._autoHide = false; }
     try { this._autoHideDelay = Services.prefs.getIntPref(PREF_AUTO_HIDE_DELAY, 300); } catch { this._autoHideDelay = 300; }
     try { this._autoHideMode = Services.prefs.getStringPref(PREF_AUTO_HIDE_MODE, "slide") || "slide"; } catch { this._autoHideMode = "slide"; }
-    try {
-      const rawPad = Services.prefs.getStringPref(PREF_PADDING, "medium");
-      this._sidebarSize = SIDEBAR_SIZES[rawPad] ? rawPad : "medium";
-    } catch { this._sidebarSize = "medium"; }
-    try { this._containerIndicatorPosition = Services.prefs.getStringPref(PREF_CONTAINER_INDICATOR, "dot") || "dot"; } catch { this._containerIndicatorPosition = "dot"; }
+    try { this._padding = Services.prefs.getIntPref(PREF_PADDING, 8); } catch { this._padding = 8; }
+    try { this._containerIndicatorPosition = Services.prefs.getStringPref(PREF_CONTAINER_INDICATOR, "bottom-right") || "bottom-right"; } catch { this._containerIndicatorPosition = "bottom-right"; }
     try { this._animations = Services.prefs.getBoolPref(PREF_ANIMATIONS, true); } catch { this._animations = true; }
     try { this._autoHideNavButtons = Services.prefs.getBoolPref(PREF_AUTO_HIDE_NAV, false); } catch { this._autoHideNavButtons = false; }
     try { this._tooltipDefault = Services.prefs.getStringPref(PREF_TOOLTIP_DEFAULT, "title") || "title"; } catch { this._tooltipDefault = "title"; }
-    try { this._toolbarColor = Services.prefs.getStringPref(PREF_TOOLBAR_COLOR, "rgba(0,0,0,0.1)"); } catch { this._toolbarColor = "rgba(0,0,0,0.1)"; }
-    try { this._navbarColor = Services.prefs.getStringPref(PREF_NAVBAR_COLOR, "transparent"); } catch { this._navbarColor = "transparent"; }
   }
 
   _savePrefs() {
@@ -2015,23 +1775,17 @@ class ZenSidebar {
     Services.prefs.setBoolPref(PREF_AUTO_HIDE, this._autoHide);
     Services.prefs.setIntPref(PREF_AUTO_HIDE_DELAY, this._autoHideDelay);
     Services.prefs.setStringPref(PREF_AUTO_HIDE_MODE, this._autoHideMode);
-    Services.prefs.setStringPref(PREF_PADDING, this._sidebarSize);
+    Services.prefs.setIntPref(PREF_PADDING, this._padding);
     Services.prefs.setStringPref(PREF_CONTAINER_INDICATOR, this._containerIndicatorPosition);
     Services.prefs.setBoolPref(PREF_ANIMATIONS, this._animations);
     Services.prefs.setBoolPref(PREF_AUTO_HIDE_NAV, this._autoHideNavButtons);
     Services.prefs.setStringPref(PREF_TOOLTIP_DEFAULT, this._tooltipDefault);
-    Services.prefs.setStringPref(PREF_TOOLBAR_COLOR, this._toolbarColor);
-    Services.prefs.setStringPref(PREF_NAVBAR_COLOR, this._navbarColor);
     this.panelManager.save();
   }
 
   _getWidth() {
     try { return Services.prefs.getIntPref(PREF_WIDTH, SIDEBAR_DEFAULT_WIDTH); }
     catch { return SIDEBAR_DEFAULT_WIDTH; }
-  }
-
-  _getToolbarWidth() {
-    return (SIDEBAR_SIZES[this._sidebarSize] || SIDEBAR_SIZES.medium).toolbar;
   }
 
   _restorePanels() { this.panelManager.restore(); }
@@ -2060,31 +1814,15 @@ const CSS_TEXT = `
   font-family: system-ui, -apple-system, sans-serif;
   overflow: visible;
   position: relative;
-  min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
-  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
-  position: relative;
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
+  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
 }
 #zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
-
-/* Overlay mode: panel floats to the left of the toolbar */
-#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-panel-area {
-  position: fixed; top: 8px; bottom: 8px; z-index: 10000;
-  right: calc(var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px) + 8px);
-  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
-  margin: 0; border-radius: 10px;
-}
-/* Hide drag handle in overlay since panel is fixed-positioned */
-#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
-/* Disable transitions during drag resize */
-#zen-sidebar-box.zen-sidebar-dragging,
-#zen-sidebar-box.zen-sidebar-dragging * { transition: none !important; }
-#zen-sidebar-box.zen-sidebar-no-transition,
-#zen-sidebar-box.zen-sidebar-no-transition * { transition: none !important; }
 
 /* ── Drag Handle (flex child, left of panel area) ──────────── */
 #zen-sidebar-drag-handle {
@@ -2105,22 +1843,14 @@ const CSS_TEXT = `
   border-radius: 10px;
   margin: var(--zen-sidebar-padding, 8px) var(--zen-sidebar-padding, 8px) var(--zen-sidebar-padding, 8px) 0;
   border: 1px solid rgba(0, 0, 0, 0.3);
-  transition: opacity 0.15s ease;
 }
 #zen-sidebar-panel-area[hidden="true"] { display: none !important; }
-#zen-sidebar-panel-area[data-collapsed="true"] {
-  width: 0 !important; min-width: 0 !important;
-  overflow: hidden !important;
-  opacity: 0; pointer-events: none;
-  margin: 0; border: none; padding: 0;
-}
 
 /* ── Nav Bar ───────────────────────────────────────────────── */
 #zen-sidebar-navbar {
   display: flex; align-items: center; gap: 2px;
   padding: 4px 6px;
   min-height: 34px; flex-shrink: 0;
-  background: var(--zen-navbar-bg, transparent);
   border-bottom: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-navbar[collapsed="true"] { display: none !important; }
@@ -2171,18 +1901,16 @@ const CSS_TEXT = `
 /* ── Icon Toolbar (always visible, fixed width) ───────────── */
 #zen-sidebar-toolbar {
   display: flex; flex-direction: column;
-  width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
-  min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
-  max-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
+  width: ${TOOLBAR_WIDTH}px; min-width: ${TOOLBAR_WIDTH}px; max-width: ${TOOLBAR_WIDTH}px;
   flex-shrink: 0;
-  background: var(--zen-toolbar-bg, rgba(0,0,0,0.1));
-  padding: var(--zen-toolbar-pad, 8px) 0;
+  background: rgba(0, 0, 0, 0.1);
+  padding: 8px 0;
   box-sizing: border-box;
   border-left: 1px solid var(--chrome-content-separator-color, rgba(128,128,128,0.12));
 }
 #zen-sidebar-toolbar-icons {
   display: flex; flex-direction: column;
-  align-items: center; gap: var(--zen-icon-gap, 4px);
+  align-items: center; gap: 4px;
   overflow-y: auto; overflow-x: hidden;
   padding: 0; flex: 1;
 }
@@ -2190,9 +1918,8 @@ const CSS_TEXT = `
 /* ── Panel Icons ───────────────────────────────────────────── */
 .zen-sidebar-panel-icon {
   appearance: none;
-  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
-  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
-  border-radius: var(--zen-icon-radius, 10px); background: transparent;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
   border: 2px solid transparent;
   cursor: default;
   padding: 0;
@@ -2202,7 +1929,7 @@ const CSS_TEXT = `
   -moz-box-pack: center; -moz-box-align: center;
 }
 .zen-sidebar-panel-icon .toolbarbutton-icon {
-  width: var(--zen-icon-img, 20px); height: var(--zen-icon-img, 20px);
+  width: 20px; height: 20px;
 }
 .zen-sidebar-panel-icon .toolbarbutton-text { display: none; }
 .zen-sidebar-panel-icon:hover {
@@ -2213,34 +1940,34 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 
-/* Container indicator — dot (default) */
+/* Container color dot — default bottom-right */
 .zen-sidebar-panel-icon[data-container-color]::after {
-  content: ""; position: absolute; bottom: 0; right: 0;
+  content: ""; position: absolute; bottom: 0px; right: 0px;
   width: 8px; height: 8px; border-radius: 50%;
-  background: var(--container-color);
   border: 1.5px solid var(--toolbar-bgcolor, #1c1b22);
 }
-/* Container indicator — outline (full border) */
-[data-indicator-pos="outline"] .zen-sidebar-panel-icon[data-container-color] { border-color: var(--container-color); }
-[data-indicator-pos="outline"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
-/* Container indicator — outline sides */
-[data-indicator-pos="outline-left"] .zen-sidebar-panel-icon[data-container-color] { border-left-color: var(--container-color); }
-[data-indicator-pos="outline-left"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
-[data-indicator-pos="outline-top"] .zen-sidebar-panel-icon[data-container-color] { border-top-color: var(--container-color); }
-[data-indicator-pos="outline-top"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
-[data-indicator-pos="outline-bottom"] .zen-sidebar-panel-icon[data-container-color] { border-bottom-color: var(--container-color); }
-[data-indicator-pos="outline-bottom"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
-[data-indicator-pos="outline-right"] .zen-sidebar-panel-icon[data-container-color] { border-right-color: var(--container-color); }
-[data-indicator-pos="outline-right"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
-/* Container indicator — none */
-[data-indicator-pos="none"] .zen-sidebar-panel-icon[data-container-color]::after { display: none; }
+/* Container indicator position variants */
+[data-indicator-pos="bottom-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: 0; right: auto; left: 0; }
+[data-indicator-pos="top-right"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: 0; }
+[data-indicator-pos="top-left"] .zen-sidebar-panel-icon[data-container-color]::after { bottom: auto; top: 0; right: auto; left: 0; }
+[data-indicator-pos="left"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); left: -2px; right: auto; bottom: auto; }
+[data-indicator-pos="right"] .zen-sidebar-panel-icon[data-container-color]::after { width: 3px; height: 16px; border-radius: 2px; top: 50%; transform: translateY(-50%); right: -2px; left: auto; bottom: auto; }
+[data-indicator-pos="top"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; top: -2px; left: 50%; transform: translateX(-50%); right: auto; bottom: auto; }
+[data-indicator-pos="bottom"] .zen-sidebar-panel-icon[data-container-color]::after { width: 16px; height: 3px; border-radius: 2px; bottom: -2px; left: 50%; transform: translateX(-50%); right: auto; top: auto; }
+.zen-sidebar-panel-icon[data-container-color="blue"]::after { background: #37adff; }
+.zen-sidebar-panel-icon[data-container-color="turquoise"]::after { background: #00c79a; }
+.zen-sidebar-panel-icon[data-container-color="green"]::after { background: #51cd00; }
+.zen-sidebar-panel-icon[data-container-color="yellow"]::after { background: #ffcb00; }
+.zen-sidebar-panel-icon[data-container-color="orange"]::after { background: #ff9f00; }
+.zen-sidebar-panel-icon[data-container-color="red"]::after { background: #ff613d; }
+.zen-sidebar-panel-icon[data-container-color="pink"]::after { background: #ff4bda; }
+.zen-sidebar-panel-icon[data-container-color="purple"]::after { background: #af51f5; }
 
 /* ── Add Button ────────────────────────────────────────────── */
 #zen-sidebar-add-btn {
   appearance: none;
-  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
-  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
-  border-radius: var(--zen-icon-radius, 10px); background: transparent;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent;
   border: 1.5px dashed rgba(128,128,128,0.3);
   cursor: pointer; color: var(--toolbar-color, #fbfbfe);
   font-size: 18px; font-weight: 300;
@@ -2310,8 +2037,8 @@ const CSS_TEXT = `
 }
 
 .zen-sidebar-drag-placeholder {
-  width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
-  border-radius: var(--zen-icon-radius, 10px);
+  width: 36px; min-height: 36px;
+  border-radius: 10px;
   margin: 0 auto;
   background: var(--zen-primary-color, AccentColor);
   opacity: 0.2;
@@ -2320,30 +2047,6 @@ const CSS_TEXT = `
 /* ── Context Menu ──────────────────────────────────────────── */
 #zen-sidebar-ctx-menu { appearance: auto; -moz-default-appearance: menupopup; }
 
-/* ── Auto-Hide Animation ─────────────────────────────────── */
-#zen-sidebar-box[data-auto-hide] #zen-sidebar-toolbar {
-  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              min-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              max-width 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              padding 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s ease,
-              border-width 0.2s ease;
-  overflow: hidden;
-}
-#zen-sidebar-toolbar[data-auto-hide-hidden] {
-  opacity: 0; pointer-events: none;
-  width: 0 !important; min-width: 0 !important; max-width: 0 !important;
-  padding: 0 !important; border-width: 0 !important;
-}
-/* Collapse the entire sidebar box when toolbar is hidden and no panel is open */
-#zen-sidebar-box[data-auto-hide-collapsed] {
-  min-width: 0 !important; width: 0 !important;
-  overflow: hidden;
-}
-
-/* ── Smooth Resize-Mode Content Push ─────────────────────── */
-/* appcontent margin is set/cleared synchronously — no transition needed */
-
 /* ── Animation Toggle ─────────────────────────────────────── */
 #zen-sidebar-box[data-no-animations] *,
 #zen-sidebar-box[data-no-animations] { transition: none !important; }
@@ -2351,9 +2054,8 @@ const CSS_TEXT = `
 /* ── Settings Gear Button ─────────────────────────────────── */
 #zen-sidebar-settings-btn {
   appearance: none;
-  width: var(--zen-icon-size, 36px); height: var(--zen-icon-size, 36px);
-  min-width: var(--zen-icon-size, 36px); min-height: var(--zen-icon-size, 36px);
-  border-radius: var(--zen-icon-radius, 10px); background: transparent; border: none;
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px;
+  border-radius: 10px; background: transparent; border: none;
   cursor: pointer; padding: 0; opacity: 0.4;
   margin: 8px auto; flex-shrink: 0;
   transition: opacity 0.15s, background 0.15s;
@@ -2418,13 +2120,6 @@ const CSS_TEXT = `
   border-color: var(--zen-primary-color, AccentColor);
 }
 .zen-settings-input-short { width: 80px; flex-shrink: 0; }
-.zen-settings-color {
-  width: 32px; height: 28px; padding: 2px; border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 4px; background: transparent; cursor: pointer; flex-shrink: 0;
-}
-.zen-settings-range {
-  flex: 1; min-width: 60px; height: 4px; accent-color: var(--zen-primary-color, AccentColor);
-}
 /* XUL checkbox */
 .zen-settings-check {
   margin: 4px 0;
