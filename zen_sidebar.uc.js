@@ -1414,18 +1414,29 @@ class ZenSidebar {
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
 
-    // Pre-warm layout engine when window regains focus to prevent
-    // stall on first interaction after switching apps
+    // Pre-warm layout engine when window regains focus (macOS App Nap
+    // aggressively suspends rendering for background windows — the first
+    // relayout after returning is expensive, especially in resize mode
+    // which changes appcontent's margin). Touch both elements to wake up
+    // their compositor layers before the user interacts.
     this._focusHandler = () => {
       if (this._sidebarBox) this._sidebarBox.offsetHeight;
+      const appcontent = this.doc.getElementById("appcontent");
+      if (appcontent) appcontent.offsetHeight;
     };
     this.win.addEventListener("focus", this._focusHandler);
+    // Also listen for visibilitychange as a belt-and-suspenders approach
+    this._visibilityHandler = () => {
+      if (!this.doc.hidden) this._focusHandler();
+    };
+    this.doc.addEventListener("visibilitychange", this._visibilityHandler);
 
     console.log("[ZenSidebar] Ready.");
   }
 
   destroy() {
     if (this._focusHandler) this.win.removeEventListener("focus", this._focusHandler);
+    if (this._visibilityHandler) this.doc.removeEventListener("visibilitychange", this._visibilityHandler);
     this._removeKeybinding();
     this._removeContentContextMenu();
     this._savePrefs();
@@ -2047,6 +2058,8 @@ const CSS_TEXT = `
   position: relative;
   min-width: var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px);
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: width;
+  contain: layout style;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
