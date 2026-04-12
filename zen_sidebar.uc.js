@@ -194,16 +194,6 @@ class WebPanel {
     // attribute and DOMAudioPlayback events are managed by tabbrowser and don't
     // fire on standalone <browser> elements outside the tab strip.
     this._audioPlaying = false;
-    this._audioPollId = setInterval(() => {
-      if (!this._browser) return;
-      try {
-        const playing = !!this._browser.audioPlaybackActive;
-        if (playing !== this._audioPlaying) {
-          this._audioPlaying = playing;
-          this.sidebar.toolbar.updateAudioState(this);
-        }
-      } catch {}
-    }, 500);
 
     this._browser.addEventListener("pagetitlechanged", this._onTitleChanged);
     this._browser.addEventListener("DOMLinkAdded", this._onLinkAdded);
@@ -213,7 +203,6 @@ class WebPanel {
     if (!this._browser) return;
     if (this._onTitleChanged) this._browser.removeEventListener("pagetitlechanged", this._onTitleChanged);
     if (this._onLinkAdded) this._browser.removeEventListener("DOMLinkAdded", this._onLinkAdded);
-    if (this._audioPollId) { clearInterval(this._audioPollId); this._audioPollId = null; }
   }
 
   _parseBadge(title) {
@@ -434,6 +423,8 @@ class PanelManager {
         this._startUnloadTimer(panel);
       }
     }
+    // Start the shared audio poll
+    this._startAudioPoll();
   }
 
   _startAutoReload(panel) {
@@ -472,6 +463,29 @@ class PanelManager {
       clearTimeout(panel._unloadTimerId);
       panel._unloadTimerId = null;
     }
+  }
+
+  // ── Audio Polling (single shared interval) ───────────────────────
+
+  _startAudioPoll() {
+    if (this._audioPollId) return;
+    this._audioPollId = setInterval(() => {
+      if (this.sidebar.doc.hidden) return; // skip when window is in background
+      for (const panel of this.panels) {
+        if (!panel._browser || !panel.isLoaded) continue;
+        try {
+          const playing = !!panel._browser.audioPlaybackActive;
+          if (playing !== panel._audioPlaying) {
+            panel._audioPlaying = playing;
+            this.sidebar.toolbar.updateAudioState(panel);
+          }
+        } catch {}
+      }
+    }, 2000);
+  }
+
+  _stopAudioPoll() {
+    if (this._audioPollId) { clearInterval(this._audioPollId); this._audioPollId = null; }
   }
 
   // ── Utility ───────────────────────────────────────────────────────
@@ -1659,16 +1673,7 @@ class ZenSidebar {
 
   _clearResize() {
     const appcontent = this.doc.getElementById("appcontent");
-    if (!appcontent) return;
-    if (this._animations && appcontent.style.marginRight) {
-      // Transition to 0 so CSS animation plays, then clean up
-      appcontent.style.marginRight = "0px";
-      const onEnd = () => { appcontent.removeEventListener("transitionend", onEnd); appcontent.style.marginRight = ""; };
-      appcontent.addEventListener("transitionend", onEnd);
-      setTimeout(() => { appcontent.removeEventListener("transitionend", onEnd); appcontent.style.marginRight = ""; }, ANIM_DURATION + 50);
-    } else {
-      appcontent.style.marginRight = "";
-    }
+    if (appcontent) appcontent.style.marginRight = "";
   }
 
   _applyVisualPrefs() {
@@ -1687,10 +1692,8 @@ class ZenSidebar {
     this._sidebarBox.style.setProperty("--zen-navbar-bg", this._navbarColor);
     if (!this._animations) {
       this._sidebarBox.setAttribute("data-no-animations", "true");
-      this.doc.documentElement.setAttribute("data-zen-no-animations", "true");
     } else {
       this._sidebarBox.removeAttribute("data-no-animations");
-      this.doc.documentElement.removeAttribute("data-zen-no-animations");
     }
     this._setupAutoHide();
   }
@@ -2315,8 +2318,7 @@ const CSS_TEXT = `
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
-#appcontent { transition: margin-right 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-:root[data-zen-no-animations] #appcontent { transition: none !important; }
+/* appcontent margin is set/cleared synchronously — no transition needed */
 
 /* ── Animation Toggle ─────────────────────────────────────── */
 #zen-sidebar-box[data-no-animations] *,
