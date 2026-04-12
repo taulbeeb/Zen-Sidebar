@@ -1495,7 +1495,8 @@ class ZenSidebar {
     if (this._isAnimating) return;
     this._panelOpen = true;
 
-    const targetWidth = (panel?.width || this._getWidth()) + this._getToolbarWidth();
+    const panelWidth = panel?.width || this._getWidth();
+    const toolbarWidth = this._getToolbarWidth();
 
     // Set up DOM state immediately (no transition)
     this._sidebarBox.classList.add("zen-sidebar-no-transition");
@@ -1508,20 +1509,28 @@ class ZenSidebar {
     this.updateNavBarVisibility();
     this._updateZoomLabel();
 
-    if (this._animations) {
-      this._isAnimating = true;
-      this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
-      // Double-rAF ensures the starting state is painted before transitioning
-      this.win.requestAnimationFrame(() => {
-        this.win.requestAnimationFrame(() => {
-          this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-          this._sidebarBox.style.width = `${targetWidth}px`;
-          setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
-        });
-      });
-    } else {
+    if (this._mode === "overlay") {
+      // Overlay: panel is fixed-positioned, sidebar box stays at toolbar width
+      this._panelArea.style.width = `${panelWidth}px`;
       this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-      this._sidebarBox.style.width = `${targetWidth}px`;
+      this._sidebarBox.style.width = "";
+    } else {
+      // Resize: sidebar box widens to include the panel
+      const targetWidth = panelWidth + toolbarWidth;
+      if (this._animations) {
+        this._isAnimating = true;
+        this._sidebarBox.style.width = `${toolbarWidth}px`;
+        this.win.requestAnimationFrame(() => {
+          this.win.requestAnimationFrame(() => {
+            this._sidebarBox.classList.remove("zen-sidebar-no-transition");
+            this._sidebarBox.style.width = `${targetWidth}px`;
+            setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
+          });
+        });
+      } else {
+        this._sidebarBox.classList.remove("zen-sidebar-no-transition");
+        this._sidebarBox.style.width = `${targetWidth}px`;
+      }
     }
 
     if (panel) panel.load();
@@ -1531,8 +1540,13 @@ class ZenSidebar {
     if (this._isAnimating) return;
     this._panelOpen = false;
     this._sidebarBox.removeAttribute("data-panel-open");
+    this._panelArea.style.width = "";
 
-    if (this._animations) {
+    if (this._mode === "overlay") {
+      // Overlay: panel is fixed, just hide it
+      this._panelArea.setAttribute("data-collapsed", "true");
+      this._dragHandle.style.display = "none";
+    } else if (this._animations) {
       this._isAnimating = true;
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`; // animate width down
       this._clearResize();
@@ -2009,13 +2023,23 @@ const CSS_TEXT = `
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
 #zen-sidebar-box[data-panel-open][data-mode="overlay"] {
-  position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
-  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
-  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s ease;
+  position: relative;
 }
 #zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
+
+/* Overlay mode: only the panel area floats over content */
+#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-panel-area {
+  position: fixed; right: 0; top: 0; bottom: 0; z-index: 10000;
+  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
+  margin: 8px; border-radius: 10px;
+}
+#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle {
+  position: fixed; z-index: 10001; top: 0; bottom: 0;
+}
+/* Hide drag handle in overlay since panel is fixed-positioned */
+#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
 /* Disable transitions during drag resize */
 #zen-sidebar-box.zen-sidebar-dragging,
 #zen-sidebar-box.zen-sidebar-dragging * { transition: none !important; }
