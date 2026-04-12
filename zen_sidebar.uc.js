@@ -18,7 +18,7 @@ class WebPanel {
     zoom = 1.0, muted = false, loadOnStartup = true, unloadOnClose = false,
     autoReloadInterval = 0, keybinding = "",
     dynamicTitle = true, dynamicFavicon = true, customTitle = "", customIcon = "",
-    cssSelector = "", tooltipMode = "title", unloadTimer = 0, mode = "" }) {
+    cssSelector = "", tooltipMode = "title", unloadTimer = 0 }) {
     this.sidebar = sidebar;
     this.id = id;
     this.url = url;
@@ -42,7 +42,6 @@ class WebPanel {
     this.cssSelector = cssSelector;
     this.tooltipMode = tooltipMode;
     this.unloadTimer = unloadTimer; // minutes before inactive panel is unloaded (0 = never)
-    this.mode = mode; // "resize", "overlay", or "" (use global default)
     this._browser = null;
     this._loaded = false;
     this._unloadTimerId = null;
@@ -271,7 +270,6 @@ class PanelManager {
       customTitle: opts.customTitle || "",
       customIcon: opts.customIcon || "",
       unloadTimer: opts.unloadTimer || 0,
-      mode: opts.mode || "",
     });
     this.panels.push(panel);
     panel.createBrowser();
@@ -364,7 +362,6 @@ class PanelManager {
       cssSelector: p.cssSelector || "",
       tooltipMode: p.tooltipMode || "title",
       unloadTimer: p.unloadTimer || 0,
-      mode: p.mode || "",
     }));
     const activeId = this._activePanel ? this._activePanel.id : null;
     Services.prefs.setStringPref(PREF_PANELS, JSON.stringify({ panels: data, activeId }));
@@ -398,7 +395,6 @@ class PanelManager {
         cssSelector: p.cssSelector || "",
         tooltipMode: p.tooltipMode || "title",
         unloadTimer: p.unloadTimer || 0,
-        mode: p.mode || "",
       });
       this.panels.push(panel);
       if (panel.loadOnStartup) {
@@ -967,6 +963,7 @@ class SettingsDialog {
       type: "arrow",
       class: "zen-settings-popup",
       role: "dialog",
+      noautohide: "true",
     });
 
     const content = xul("vbox", { class: "zen-settings-content" });
@@ -1079,16 +1076,6 @@ class SettingsDialog {
     tooltipSelect.value = p.tooltipMode || "title";
     content.appendChild(row(label("Tooltip"), tooltipSelect));
 
-    // Panel mode (pinned/overlay)
-    const modeSelect = xul("menulist", { class: "zen-settings-menulist" });
-    const modePopup = xul("menupopup");
-    for (const [val, lbl] of [["", "Default"], ["resize", "Pinned"], ["overlay", "Overlay"]]) {
-      modePopup.appendChild(xul("menuitem", { value: val, label: lbl }));
-    }
-    modeSelect.appendChild(modePopup);
-    modeSelect.value = p.mode || "";
-    content.appendChild(row(label("Panel Mode"), modeSelect));
-
     // Memory management
     const loadStartupCheck = xul("checkbox", { label: "Load on Startup", class: "zen-settings-check" });
     if (p.loadOnStartup !== false) loadStartupCheck.setAttribute("checked", "true");
@@ -1152,7 +1139,6 @@ class SettingsDialog {
         loadOnStartup: loadStartupCheck.checked,
         unloadOnClose: unloadCloseCheck.checked,
         unloadTimer: parseInt(unloadTimerSelect.value, 10) || 0,
-        mode: modeSelect.value,
         customTitle: customTitleInput.value.trim(),
         customIcon: customIconInput.value.trim(),
       };
@@ -1168,7 +1154,6 @@ class SettingsDialog {
         panel.loadOnStartup = opts.loadOnStartup;
         panel.unloadOnClose = opts.unloadOnClose;
         panel.unloadTimer = opts.unloadTimer;
-        panel.mode = opts.mode;
         panel.customTitle = opts.customTitle;
         panel.customIcon = opts.customIcon;
         if (opts.customTitle) panel.label = opts.customTitle;
@@ -1223,6 +1208,7 @@ class SettingsDialog {
       type: "arrow",
       class: "zen-settings-popup",
       role: "dialog",
+      noautohide: "true",
     });
     const content = xul("vbox", { class: "zen-settings-content" });
     content.appendChild(xul("label", { value: "Sidebar Settings", class: "zen-settings-title" }));
@@ -1587,17 +1573,8 @@ class ZenSidebar {
     this.updateNavBarVisibility();
     this._updateZoomLabel();
 
-    const effectiveMode = this._getEffectiveMode(panel);
-    if (effectiveMode === "overlay") {
-      // Overlay: apply fixed positioning inline on the panel area
-      this._panelArea.style.position = "fixed";
-      this._panelArea.style.top = "8px";
-      this._panelArea.style.bottom = "8px";
-      this._panelArea.style.right = `${toolbarWidth + 8}px`;
-      this._panelArea.style.zIndex = "10000";
+    if (this._mode === "overlay") {
       this._panelArea.style.width = `${panelWidth}px`;
-      this._panelArea.style.margin = "0";
-      this._panelArea.style.boxShadow = "-2px 0 12px rgba(0,0,0,0.25)";
       this._sidebarBox.style.width = "";
     } else if (this._animations) {
       // Animated resize: suppress transitions, set start, reflow, animate to target
@@ -1617,17 +1594,14 @@ class ZenSidebar {
   collapsePanel() {
     // Cancel any pending collapse cleanup
     if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
-    const collapseMode = this._getEffectiveMode(this.panelManager.activePanel);
     this._panelOpen = false;
     this._sidebarBox.removeAttribute("data-panel-open");
     this._panelArea.style.width = "";
 
-    if (collapseMode === "overlay") {
-      // Overlay: clear fixed positioning, hide panel
+    if (this._mode === "overlay") {
+      // Overlay: panel is fixed, just hide it
       this._panelArea.setAttribute("data-collapsed", "true");
       this._dragHandle.style.display = "none";
-      this._clearOverlayStyles();
-      this._sidebarBox.style.width = "";
     } else if (this._animations) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
@@ -1647,12 +1621,6 @@ class ZenSidebar {
         panel.unload();
         this.toolbar.updateUnloadedState(panel);
       }
-    }
-  }
-
-  _clearOverlayStyles() {
-    for (const prop of ["position", "top", "bottom", "right", "zIndex", "width", "margin", "boxShadow"]) {
-      this._panelArea.style[prop] = "";
     }
   }
 
@@ -1689,55 +1657,21 @@ class ZenSidebar {
 
   get mode() { return this._mode; }
 
-  _getEffectiveMode(panel) {
-    return (panel && panel.mode) ? panel.mode : this._mode;
-  }
-
   toggleMode() {
-    const panel = this.panelManager.activePanel;
-    if (panel) {
-      // Per-panel mode toggle
-      const current = this._getEffectiveMode(panel);
-      panel.mode = current === "overlay" ? "resize" : "overlay";
-      this.panelManager.save();
-    } else {
-      // Global fallback
-      this._mode = this._mode === "overlay" ? "resize" : "overlay";
-      this._savePrefs();
-    }
+    this._mode = this._mode === "overlay" ? "resize" : "overlay";
     this._applyMode();
+    this._savePrefs();
   }
 
   _applyMode() {
     const box = this._sidebarBox;
     if (!box) return;
-    const panel = this.panelManager.activePanel;
-    const effectiveMode = this._getEffectiveMode(panel);
-    box.setAttribute("data-mode", effectiveMode);
+    box.setAttribute("data-mode", this._mode);
     const modeBtn = this.doc.getElementById("zen-sb-mode");
     if (modeBtn) {
-      modeBtn.setAttribute("data-mode", effectiveMode);
+      modeBtn.setAttribute("data-mode", this._mode);
       modeBtn.setAttribute("tooltiptext",
-        effectiveMode === "overlay" ? "Pin panel" : "Unpin panel");
-    }
-    // Adjust layout when switching modes with a panel open
-    if (this._panelOpen && panel) {
-      const panelWidth = panel.width || this._getWidth();
-      const toolbarWidth = this._getToolbarWidth();
-      if (effectiveMode === "overlay") {
-        this._panelArea.style.position = "fixed";
-        this._panelArea.style.top = "8px";
-        this._panelArea.style.bottom = "8px";
-        this._panelArea.style.right = `${toolbarWidth + 8}px`;
-        this._panelArea.style.zIndex = "10000";
-        this._panelArea.style.width = `${panelWidth}px`;
-        this._panelArea.style.margin = "0";
-        this._panelArea.style.boxShadow = "-2px 0 12px rgba(0,0,0,0.25)";
-        this._sidebarBox.style.width = "";
-      } else {
-        this._clearOverlayStyles();
-        this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
-      }
+        this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode");
     }
   }
 
@@ -2104,12 +2038,22 @@ const CSS_TEXT = `
   contain: layout style;
 }
 #zen-sidebar-box[hidden="true"] { display: none !important; }
+#zen-sidebar-box[data-panel-open][data-mode="overlay"] {
+  position: relative;
+}
 #zen-sidebar-box[data-panel-open][data-mode="resize"] {
   position: relative; z-index: 1;
 }
-/* Hide drag handle in overlay mode */
-#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
 
+/* Overlay mode: panel floats to the left of the toolbar */
+#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-panel-area {
+  position: fixed; top: 8px; bottom: 8px; z-index: 10000;
+  right: calc(var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px) + 8px);
+  box-shadow: -2px 0 12px rgba(0,0,0,0.25);
+  margin: 0; border-radius: 10px;
+}
+/* Hide drag handle in overlay since panel is fixed-positioned */
+#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
 /* Disable transitions during drag resize */
 #zen-sidebar-box.zen-sidebar-dragging,
 #zen-sidebar-box.zen-sidebar-dragging * { transition: none !important; }
@@ -2186,8 +2130,8 @@ const CSS_TEXT = `
   background: var(--toolbar-color, #fbfbfe);
   mask-size: contain; mask-repeat: no-repeat; mask-position: center; opacity: 0.7;
 }
-#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); opacity: 0.4; }
-#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); }
+#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/open-in-new.svg"); }
+#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/arrow-left.svg"); }
 
 /* ── Panel Container ──────────────────────────────────────── */
 #zen-sidebar-panel-container {
