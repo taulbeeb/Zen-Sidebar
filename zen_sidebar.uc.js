@@ -1413,10 +1413,19 @@ class ZenSidebar {
     this._registerContentContextMenu();
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
+
+    // Pre-warm layout engine when window regains focus to prevent
+    // stall on first interaction after switching apps
+    this._focusHandler = () => {
+      if (this._sidebarBox) this._sidebarBox.offsetHeight;
+    };
+    this.win.addEventListener("focus", this._focusHandler);
+
     console.log("[ZenSidebar] Ready.");
   }
 
   destroy() {
+    if (this._focusHandler) this.win.removeEventListener("focus", this._focusHandler);
     this._removeKeybinding();
     this._removeContentContextMenu();
     this._savePrefs();
