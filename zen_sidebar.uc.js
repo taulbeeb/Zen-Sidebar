@@ -1233,7 +1233,16 @@ class SettingsDialog {
     autoHideModeSelect.value = s._autoHideMode;
     content.appendChild(row(label("Hide Mode"), autoHideModeSelect));
 
-    // Padding
+    // Default panel mode
+    const defaultModeSelect = xul("menulist", { class: "zen-settings-menulist" });
+    const dmPopup = xul("menupopup");
+    for (const [val, lbl] of [["resize", "Pinned"], ["overlay", "Overlay"]]) {
+      dmPopup.appendChild(xul("menuitem", { value: val, label: lbl }));
+    }
+    defaultModeSelect.appendChild(dmPopup);
+    defaultModeSelect.value = s._mode;
+    content.appendChild(row(label("Default Panel Mode"), defaultModeSelect));
+
     // Sidebar size
     const sizeSelect = xul("menulist", { class: "zen-settings-menulist" });
     const sizePopup = xul("menupopup");
@@ -1319,6 +1328,8 @@ class SettingsDialog {
       s._autoHide = autoHideCheck.checked;
       s._autoHideDelay = parseInt(autoHideDelayInput.value, 10) || 300;
       s._autoHideMode = autoHideModeSelect.value;
+      s._mode = defaultModeSelect.value;
+      s._applyMode();
       s._sidebarSize = sizeSelect.value;
       s._containerIndicatorPosition = indicatorSelect.value;
       s._animations = animCheck.checked;
@@ -1671,7 +1682,7 @@ class ZenSidebar {
     if (modeBtn) {
       modeBtn.setAttribute("data-mode", this._mode);
       modeBtn.setAttribute("tooltiptext",
-        this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode");
+        this._mode === "overlay" ? "Pin panel" : "Unpin panel");
     }
   }
 
@@ -2130,8 +2141,8 @@ const CSS_TEXT = `
   background: var(--toolbar-color, #fbfbfe);
   mask-size: contain; mask-repeat: no-repeat; mask-position: center; opacity: 0.7;
 }
-#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/open-in-new.svg"); }
-#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/arrow-left.svg"); }
+#zen-sb-mode[data-mode="resize"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); }
+#zen-sb-mode[data-mode="overlay"]::after { mask-image: url("chrome://global/skin/icons/pin.svg"); opacity: 0.4; }
 
 /* ── Panel Container ──────────────────────────────────────── */
 #zen-sidebar-panel-container {
