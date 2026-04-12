@@ -1604,13 +1604,11 @@ class ZenSidebar {
       this._dragHandle.style.display = "none";
     } else if (this._animations) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
-      this._clearResize();
       this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
     } else {
       this._panelArea.setAttribute("hidden", "true");
       this._dragHandle.style.display = "none";
       this._sidebarBox.style.width = "";
-      this._clearResize();
       if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
         this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
       }
@@ -1677,9 +1675,6 @@ class ZenSidebar {
     }
   }
 
-  _clearResize() {
-    // No-op: sidebar is in document flow, flex layout handles sizing naturally
-  }
 
   _applyVisualPrefs() {
     if (!this._sidebarBox) return;
@@ -2321,7 +2316,7 @@ const CSS_TEXT = `
 }
 
 /* ── Smooth Resize-Mode Content Push ─────────────────────── */
-/* appcontent margin is set/cleared synchronously — no transition needed */
+/* ── Smooth Resize-Mode Content Push ─────────────────────── */
 
 /* ── Animation Toggle ─────────────────────────────────────── */
 #zen-sidebar-box[data-no-animations] *,
