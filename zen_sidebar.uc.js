@@ -1368,6 +1368,7 @@ const PREF_NAVBAR_COLOR = "zen.sidebar.navbarColor";
 const SIDEBAR_DEFAULT_WIDTH = 400;
 const TOOLBAR_WIDTH = 48;
 const ANIM_DURATION = 200; // ms – sidebar open/close transition time
+const FOCUS_RESUME_INSTANT_MS = 1500; // make the first toggle after app/window re-activation instant
 const SIDEBAR_SIZES = {
   smallest: { toolbar: 36, icon: 26, img: 14, gap: 2, pad: 4, iconRadius: 7 },
   small:    { toolbar: 42, icon: 30, img: 16, gap: 3, pad: 6, iconRadius: 8 },
@@ -1401,6 +1402,7 @@ class ZenSidebar {
     this._toolbarColor = "rgba(0,0,0,0.1)";
     this._navbarColor = "transparent";
     this._collapseTimer = null;
+    this._instantToggleUntil = 0;
   }
 
   init() {
@@ -1410,6 +1412,7 @@ class ZenSidebar {
     this._injectInlineCSS();
     this._applyVisualPrefs();
     this._registerKeybinding();
+    this._registerWindowActivationTracking();
     this._registerContentContextMenu();
     this._restorePanels();
     this._sidebarBox.removeAttribute("hidden");
@@ -1418,6 +1421,7 @@ class ZenSidebar {
 
   destroy() {
     this._removeKeybinding();
+    this._removeWindowActivationTracking();
     this._removeContentContextMenu();
     this._savePrefs();
     for (const el of [this._sidebarBox, this._inlineStyleEl]) {
@@ -1541,6 +1545,10 @@ class ZenSidebar {
 
   get panelOpen() { return this._panelOpen; }
 
+  _shouldAnimateToggle() {
+    return this._animations && Date.now() >= this._instantToggleUntil;
+  }
+
   expandPanel(panel) {
     // Cancel any pending collapse cleanup
     if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
@@ -1561,7 +1569,7 @@ class ZenSidebar {
     if (this._mode === "overlay") {
       this._panelArea.style.width = `${panelWidth}px`;
       this._sidebarBox.style.width = "";
-    } else if (this._animations) {
+    } else if (this._shouldAnimateToggle()) {
       // Animated resize: suppress transitions, set start, reflow, animate to target
       this._sidebarBox.classList.add("zen-sidebar-no-transition");
       this._sidebarBox.style.width = `${toolbarWidth}px`;
@@ -1587,7 +1595,7 @@ class ZenSidebar {
       // Overlay: panel is fixed, just hide it
       this._panelArea.setAttribute("data-collapsed", "true");
       this._dragHandle.style.display = "none";
-    } else if (this._animations) {
+    } else if (this._shouldAnimateToggle()) {
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       this._clearResize();
       this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
@@ -1880,6 +1888,22 @@ class ZenSidebar {
 
   _removeKeybinding() {
     if (this._keyHandler) this.win.removeEventListener("keydown", this._keyHandler);
+  }
+
+  _registerWindowActivationTracking() {
+    this._windowActivationHandler = (event) => {
+      if (event?.type === "visibilitychange" && this.doc.hidden) return;
+      this._instantToggleUntil = Date.now() + FOCUS_RESUME_INSTANT_MS;
+    };
+    this.win.addEventListener("focus", this._windowActivationHandler, true);
+    this.doc.addEventListener("visibilitychange", this._windowActivationHandler, true);
+  }
+
+  _removeWindowActivationTracking() {
+    if (!this._windowActivationHandler) return;
+    this.win.removeEventListener("focus", this._windowActivationHandler, true);
+    this.doc.removeEventListener("visibilitychange", this._windowActivationHandler, true);
+    this._windowActivationHandler = null;
   }
 
   // ── Content Context Menu (right-click on web pages) ───────────────
