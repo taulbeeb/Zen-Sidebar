@@ -2088,11 +2088,14 @@ const CSS_TEXT = `
 }
 
 /* Overlay mode: panel floats to the left of the toolbar */
-#zen-sidebar-box[data-mode="overlay"] #zen-sidebar-panel-area {
-  position: fixed; top: 8px; bottom: 8px; z-index: 10000;
+#zen-sidebar-box[data-panel-open][data-mode="overlay"] #zen-sidebar-panel-area {
+  position: fixed !important; top: 8px; bottom: 8px; z-index: 10000;
   right: calc(var(--zen-toolbar-width, ${TOOLBAR_WIDTH}px) + 8px);
+  display: flex !important; flex-direction: column;
   box-shadow: -2px 0 12px rgba(0,0,0,0.25);
   margin: 0; border-radius: 10px;
+  opacity: 1 !important; pointer-events: auto !important;
+  overflow: hidden;
 }
 /* Hide drag handle in overlay since panel is fixed-positioned */
 #zen-sidebar-box[data-mode="overlay"] #zen-sidebar-drag-handle { display: none !important; }
