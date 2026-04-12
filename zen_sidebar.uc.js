@@ -1386,7 +1386,7 @@ class ZenSidebar {
     this._tooltipDefault = "title";
     this._toolbarColor = "rgba(0,0,0,0.1)";
     this._navbarColor = "transparent";
-    this._isAnimating = false;
+    this._collapseTimer = null;
   }
 
   init() {
@@ -1528,7 +1528,8 @@ class ZenSidebar {
   get panelOpen() { return this._panelOpen; }
 
   expandPanel(panel) {
-    if (this._isAnimating) return;
+    // Cancel any pending collapse cleanup
+    if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
     this._panelOpen = true;
 
     const panelWidth = panel?.width || this._getWidth();
@@ -1554,24 +1555,17 @@ class ZenSidebar {
       // Resize: sidebar box widens to include the panel
       const targetWidth = panelWidth + toolbarWidth;
       this._sidebarBox.style.width = `${toolbarWidth}px`;
-      // Synchronous reflow locks the starting width (no rAF — immune to focus loss)
-      this._sidebarBox.getBoundingClientRect();
+      this._sidebarBox.getBoundingClientRect(); // lock starting width
       this._sidebarBox.classList.remove("zen-sidebar-no-transition");
-
-      if (this._animations) {
-        this._isAnimating = true;
-        this._sidebarBox.style.width = `${targetWidth}px`;
-        setTimeout(() => { this._isAnimating = false; }, ANIM_DURATION + 50);
-      } else {
-        this._sidebarBox.style.width = `${targetWidth}px`;
-      }
+      this._sidebarBox.style.width = `${targetWidth}px`;
     }
 
     if (panel) panel.load();
   }
 
   collapsePanel() {
-    if (this._isAnimating) return;
+    // Cancel any pending collapse cleanup
+    if (this._collapseTimer) { clearTimeout(this._collapseTimer); this._collapseTimer = null; }
     this._panelOpen = false;
     this._sidebarBox.removeAttribute("data-panel-open");
     this._panelArea.style.width = "";
@@ -1581,17 +1575,14 @@ class ZenSidebar {
       this._panelArea.setAttribute("data-collapsed", "true");
       this._dragHandle.style.display = "none";
     } else if (this._animations) {
-      this._isAnimating = true;
       this._sidebarBox.style.width = `${this._getToolbarWidth()}px`;
       this._clearResize();
-      // Use setTimeout instead of transitionend — immune to window focus loss
-      setTimeout(() => { this._finishCollapse(); }, ANIM_DURATION + 50);
+      this._collapseTimer = setTimeout(() => { this._collapseTimer = null; this._finishCollapse(); }, ANIM_DURATION + 50);
     } else {
       this._panelArea.setAttribute("hidden", "true");
       this._dragHandle.style.display = "none";
       this._sidebarBox.style.width = "";
       this._clearResize();
-      // If auto-hide is active and toolbar is hidden, collapse the box too
       if (this._autoHide && this.toolbar._toolbar.hasAttribute("data-auto-hide-hidden")) {
         this._sidebarBox.setAttribute("data-auto-hide-collapsed", "true");
       }
@@ -1608,8 +1599,8 @@ class ZenSidebar {
   }
 
   _finishCollapse() {
-    if (!this._isAnimating) return; // already finished (safety timeout vs transitionend race)
-    this._isAnimating = false;
+    // Skip if panel was re-opened before cleanup fired
+    if (this._panelOpen) return;
     this._sidebarBox.classList.add("zen-sidebar-no-transition");
     this._panelArea.setAttribute("data-collapsed", "true");
     this._dragHandle.style.display = "none";
@@ -1627,12 +1618,6 @@ class ZenSidebar {
     if (active === panel && this._panelOpen) {
       this.collapsePanel();
       return;
-    }
-    // Cancel in-progress collapse animation so we can expand immediately
-    if (this._isAnimating) {
-      this._isAnimating = false;
-      this._panelArea.style.opacity = "";
-      this._panelArea.removeAttribute("data-collapsed");
     }
     this.panelManager.switchTo(panel);
     this.toolbar.updateUnloadedState(panel); // clear dimmed state after ensureBrowser
