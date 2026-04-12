@@ -1685,7 +1685,32 @@ class ZenSidebar {
     if (modeBtn) {
       modeBtn.setAttribute("data-mode", this._mode);
       modeBtn.setAttribute("tooltiptext",
-        this._mode === "overlay" ? "Switch to resize mode" : "Switch to overlay mode");
+        this._mode === "overlay" ? "Pin panel" : "Unpin panel");
+    }
+    // Adjust layout when switching modes with a panel open
+    if (this._panelOpen) {
+      const panel = this.panelManager.activePanel;
+      const panelWidth = panel?.width || this._getWidth();
+      const toolbarWidth = this._getToolbarWidth();
+      if (this._mode === "overlay") {
+        // Apply overlay inline styles, clear sidebar box width
+        const s = this._panelArea.style;
+        s.position = "fixed";
+        s.top = "8px";
+        s.bottom = "8px";
+        s.right = `${toolbarWidth + 8}px`;
+        s.zIndex = "10000";
+        s.width = `${panelWidth}px`;
+        s.margin = "0";
+        s.boxShadow = "-2px 0 12px rgba(0,0,0,0.25)";
+        s.borderRadius = "10px";
+        this._sidebarBox.style.width = "";
+      } else {
+        // Clear overlay inline styles, set sidebar box width
+        const s = this._panelArea.style;
+        s.position = s.top = s.bottom = s.right = s.zIndex = s.width = s.margin = s.boxShadow = s.borderRadius = "";
+        this._sidebarBox.style.width = `${panelWidth + toolbarWidth}px`;
+      }
     }
   }
 
